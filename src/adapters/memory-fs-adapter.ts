@@ -1,37 +1,12 @@
 /**
- * FileSystemAdapter — platform-agnostic file-system interface.
- *
- * Different platforms supply different implementations:
- *   • MemoryFileSystemAdapter  — tests (this file)
- *   • ElectronFileSystemAdapter — Phase 2
- */
-
-export interface FileSystemAdapter {
-  readFile(path: string): Promise<Uint8Array>;
-  writeFile(path: string, data: Uint8Array): Promise<void>;
-  readTextFile(path: string): Promise<string>;
-  writeTextFile(path: string, content: string): Promise<void>;
-  exists(path: string): Promise<boolean>;
-  mkdir(path: string): Promise<void>;
-  readdir(path: string): Promise<string[]>;
-  unlink(path: string): Promise<void>;
-  rename(from: string, to: string): Promise<void>;
-  stat(path: string): Promise<{
-    isFile: boolean;
-    isDirectory: boolean;
-    size: number;
-    mtime: number;
-  }>;
-  watch(path: string, callback: (event: 'change' | 'rename', filename: string) => void): () => void;
-}
-
-/**
  * In-memory file system for fast, side-effect-free testing.
  *
  * Internally stores data in a flat Map keyed by full path.
  * Binary data is stored as Uint8Array; text data as string.
  * mkdir is a no-op (flat namespace).
  */
+import type { FileSystemAdapter } from './fs-adapter.js';
+
 export class MemoryFileSystemAdapter implements FileSystemAdapter {
   private files = new Map<string, Uint8Array | string>();
 

@@ -12,25 +12,23 @@
  *   UT-008: convertLegacyToModern - modern document throws error
  *   UT-009: getDocumentTypeInfo - legacy
  *   UT-010: getDocumentTypeInfo - modern
- *   UT-011: LegacyStorageAdapter - loadContent
- *   UT-012: LegacyStorageAdapter - saveContent
+ *   UT-011: MdStorageAdapter - loadContent
+ *   UT-012: MdStorageAdapter - saveContent
  *   UT-013: isMarkdownXDocument - legacy document (BUG FIX)
  *   UT-014: isMarkdownXDocument - modern document
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { MemoryFileSystemAdapter } from "./helpers/memory-fs-adapter.js";
-
-// Import functions that will be implemented
+import { MemoryFileSystemAdapter } from "../src/adapters/memory-fs-adapter.js";
 import {
   detectDocumentType,
   getDocumentTypeInfo,
   createLegacyDocument,
   createModernDocument,
-  convertLegacyToModern,
   isMarkdownXDocument,
-} from "../src/mdx-document.js";
-import { LegacyStorageAdapter } from "../src/legacy-storage-adapter.js";
-import type { DocumentType, DocumentTypeInfo } from "../src/schema.js";
+  convertLegacyToModern,
+} from "../src/document/document-utils.js";
+import { MdStorageAdapter } from "../src/adapters/legacy-storage-adapter.js";
+import type { DocumentType, DocumentTypeInfo } from "../src/document/schema.js";
 
 // ==========================================================================
 // UT-001 ~ UT-004: detectDocumentType tests
@@ -240,26 +238,26 @@ describe("getDocumentTypeInfo", () => {
 });
 
 // ==========================================================================
-// UT-011 ~ UT-012: LegacyStorageAdapter tests
+// UT-011 ~ UT-012: MdStorageAdapter tests
 // ==========================================================================
-describe("LegacyStorageAdapter", () => {
+describe("MdStorageAdapter", () => {
   let fs: MemoryFileSystemAdapter;
-  let adapter: LegacyStorageAdapter;
+  let adapter: MdStorageAdapter;
 
   beforeEach(async () => {
     fs = new MemoryFileSystemAdapter();
     await createLegacyDocument("/docs/legacy.mdx", fs);
-    adapter = new LegacyStorageAdapter("/docs/legacy.mdx", fs);
+    adapter = new MdStorageAdapter("/docs/legacy.mdx", fs);
   });
 
-  // UT-011: LegacyStorageAdapter - loadContent
+  // UT-011: MdStorageAdapter - loadContent
   it("UT-011: loadContent returns index.md content", async () => {
     const content = await adapter.loadContent();
 
     expect(content).toBe("# Untitled\n\n");
   });
 
-  // UT-012: LegacyStorageAdapter - saveContent
+  // UT-012: MdStorageAdapter - saveContent
   it("UT-012: saveContent writes to index.md", async () => {
     const newContent = "# Updated\n\nNew content here.";
 
@@ -277,7 +275,7 @@ describe("LegacyStorageAdapter", () => {
   });
 
   it("loadContent throws for non-existent document", async () => {
-    const badAdapter = new LegacyStorageAdapter("/does/not/exist", fs);
+    const badAdapter = new MdStorageAdapter("/does/not/exist", fs);
 
     await expect(badAdapter.loadContent()).rejects.toThrow();
   });
@@ -287,7 +285,7 @@ describe("LegacyStorageAdapter", () => {
     await fs.mkdir("/docs/partial.mdx");
     await fs.mkdir("/docs/partial.mdx/assets");
 
-    const partialAdapter = new LegacyStorageAdapter("/docs/partial.mdx", fs);
+    const partialAdapter = new MdStorageAdapter("/docs/partial.mdx", fs);
 
     await partialAdapter.saveContent("# New Doc\n\nContent.");
 

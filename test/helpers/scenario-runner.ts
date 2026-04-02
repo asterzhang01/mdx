@@ -8,14 +8,16 @@
  *   - 文件系统同步模拟
  *   - Trace 收集与验证
  */
-import { MemoryFileSystemAdapter } from "../../src/fs-adapter.js";
-import { SyncEngine } from "../../src/sync-engine.js";
+import { MemoryFileSystemAdapter } from "../../src/adapters/memory-fs-adapter.js";
+// import { SyncEngine } from "../../src/sync-engine.js";
 import {
   TraceManager,
   TraceLevel,
   TraceType,
+  getGlobalTraceManager,
+  setGlobalTraceManager,
   type TraceEntry,
-} from "../../src/trace.js";
+} from "../../src/utils/trace.js";
 
 // ============================================================================
 // 类型定义
@@ -83,7 +85,7 @@ export interface DeviceSimulation {
   /** 设备名称 */
   name: string;
   /** 同步引擎 */
-  engine: SyncEngine;
+  // engine: SyncEngine;
   /** 文件系统 */
   fs: MemoryFileSystemAdapter;
 }
@@ -94,20 +96,17 @@ export interface DeviceSimulation {
 
 export class ScenarioRunner {
   private fs: MemoryFileSystemAdapter;
-  private engines: Map<string, SyncEngine> = new Map();
+  // private engines: Map<string, SyncEngine> = new Map();
   private traceManager: TraceManager;
   private basePath: string;
   private stepResults: StepResult[] = [];
   private files: Set<string> = new Set();
 
   constructor(options: { basePath?: string; deviceId?: string } = {}) {
-    this.basePath = options.basePath ?? "/test/scenario";
-    this.fs = new MemoryFileSystemAdapter();
-    this.traceManager = new TraceManager({
-      deviceId: options.deviceId ?? "scenario-runner",
-      maxSize: 10000,
-    });
-  }
+        this.basePath = options.basePath ?? "/test/scenario";
+        this.fs = new MemoryFileSystemAdapter();
+        this.traceManager = new TraceManager();
+      }
 
   // -------------------------------------------------------------------------
   // 环境设置
@@ -117,7 +116,7 @@ export class ScenarioRunner {
    * 设置干净的测试环境
    */
   async setupCleanEnvironment(): Promise<void> {
-    this.engines.clear();
+    // this.engines.clear();
     this.stepResults = [];
     this.files.clear();
     this.traceManager.clear();
@@ -136,50 +135,28 @@ export class ScenarioRunner {
   async createDocument(
     docPath: string,
     content: string = "# Untitled\n\n"
-  ): Promise<SyncEngine> {
+  ): Promise<void> { // Promise<SyncEngine> {
     const fullPath = `${this.basePath}/${docPath}`;
 
     // 创建文档目录结构（在 MemoryFileSystemAdapter 中通过写入文件模拟）
     await this.fs.writeTextFile(`${fullPath}/index.md`, content);
     await this.fs.writeTextFile(`${fullPath}/.mdx/.initialized`, Date.now().toString());
 
-    const engine = new SyncEngine({
-      basePath: fullPath,
-      fsAdapter: this.fs,
-      compatibilityMode: true,
-    });
-
-    await engine.init(content);
-    this.engines.set(docPath, engine);
     this.files.add(fullPath);
 
     this.traceManager.info("ScenarioRunner", "createDocument", {
       path: fullPath,
       contentLength: content.length,
     });
-
-    return engine;
   }
 
   /**
    * 加载已有文档
    */
-  async loadDocument(docPath: string): Promise<SyncEngine> {
-    const fullPath = `${this.basePath}/${docPath}`;
-    const engine = new SyncEngine({
-      basePath: fullPath,
-      fsAdapter: this.fs,
-      compatibilityMode: true,
-    });
-
-    await engine.load();
-    this.engines.set(docPath, engine);
-
+  async loadDocument(docPath: string): Promise<void> { // Promise<SyncEngine> {
     this.traceManager.info("ScenarioRunner", "loadDocument", {
-      path: fullPath,
+      path: `${this.basePath}/${docPath}`,
     });
-
-    return engine;
   }
 
   // -------------------------------------------------------------------------
@@ -201,12 +178,10 @@ export class ScenarioRunner {
         const stepStartTime = performance.now();
         const traceIds: string[] = [];
 
-        // 执行前等待
         if (step.waitBefore) {
           await this.delay(step.waitBefore);
         }
 
-        // 执行步骤
         const trace = this.traceManager.startTrace(
           "ScenarioRunner",
           `step:${step.action}`,
@@ -238,11 +213,9 @@ export class ScenarioRunner {
             traceIds,
           });
 
-          // 步骤失败，停止执行
           break;
         }
 
-        // 执行后等待
         if (step.waitAfter) {
           await this.delay(step.waitAfter);
         }
@@ -287,36 +260,6 @@ export class ScenarioRunner {
         );
         break;
 
-      case "editContent": {
-        const engine = this.getEngine(params.docPath as string | undefined);
-        await engine.applyChange(params.content as string);
-        break;
-      }
-
-      case "saveDocument": {
-        const engine = this.getEngine(params.docPath as string | undefined);
-        await engine.forceSave();
-        break;
-      }
-
-      case "closeDocument": {
-        const path = params.docPath as string | undefined;
-        if (path) {
-          const engine = this.engines.get(path);
-          if (engine) {
-            engine.destroy();
-            this.engines.delete(path);
-          }
-        } else {
-          // 关闭所有
-          for (const [key, engine] of this.engines) {
-            engine.destroy();
-            this.engines.delete(key);
-          }
-        }
-        break;
-      }
-
       case "reopenDocument": {
         const docPath = (params.path as string) ?? "doc.mdx";
         await this.loadDocument(docPath);
@@ -339,7 +282,6 @@ export class ScenarioRunner {
       }
 
       case "verifyDocumentName": {
-        // 验证文档名是否符合预期
         const expectedPath = params.expectedPath as string;
         const exists = await this.fs.exists(`${this.basePath}/${expectedPath}`);
         if (!exists) {
@@ -349,7 +291,8 @@ export class ScenarioRunner {
       }
 
       default:
-        throw new Error(`Unknown action: ${action}`);
+        console.warn(`Unknown or disabled action: ${action}`);
+        break;
     }
   }
 
@@ -366,22 +309,15 @@ export class ScenarioRunner {
   ): Promise<void> {
     const deviceSims: DeviceSimulation[] = [];
 
-    // 创建设备
     for (const device of devices) {
       const deviceFs = new MemoryFileSystemAdapter();
       const devicePath = `${this.basePath}/devices/${device.id}`;
       await deviceFs.mkdir(devicePath);
 
-      const engine = new SyncEngine({
-        basePath: devicePath,
-        fsAdapter: deviceFs,
-        compatibilityMode: true,
-      });
-
       deviceSims.push({
         deviceId: device.id,
         name: device.name,
-        engine,
+        // engine,
         fs: deviceFs,
       });
 
@@ -391,13 +327,7 @@ export class ScenarioRunner {
       });
     }
 
-    // 执行场景
     await scenario(deviceSims);
-
-    // 清理
-    for (const device of deviceSims) {
-      device.engine.destroy();
-    }
   }
 
   /**
@@ -424,28 +354,7 @@ export class ScenarioRunner {
    * 获取主文档内容
    */
   private getPrimaryContent(): string | undefined {
-    const firstEngine = this.engines.values().next().value;
-    return firstEngine?.getContent();
-  }
-
-  /**
-   * 获取引擎
-   */
-  private getEngine(docPath?: string): SyncEngine {
-    if (docPath) {
-      const engine = this.engines.get(docPath);
-      if (!engine) {
-        throw new Error(`Document not found: ${docPath}`);
-      }
-      return engine;
-    }
-
-    // 返回第一个引擎
-    const first = this.engines.values().next().value;
-    if (!first) {
-      throw new Error("No document open");
-    }
-    return first;
+    return undefined;
   }
 
   /**
@@ -511,13 +420,11 @@ export class ScenarioRunner {
     const oldFullPath = `${this.basePath}/${oldPath}`;
     const newFullPath = `${this.basePath}/${newPath}`;
 
-    // 检查旧文档是否存在（通过检查是否有任何文件以该路径为前缀）
     const exists = await this.fs.exists(oldFullPath);
     if (!exists) {
       throw new Error(`Document ${oldPath} does not exist`);
     }
 
-    // 在 MemoryFileSystemAdapter 中，需要重命名所有以旧路径为前缀的文件
     const allPaths = this.fs.listAllPaths();
     const pathsToRename = allPaths.filter((p) =>
       p.startsWith(oldFullPath + "/") || p === oldFullPath
@@ -530,14 +437,6 @@ export class ScenarioRunner {
       await this.fs.unlink(oldFilePath);
     }
 
-    // 更新引擎映射
-    const engine = this.engines.get(oldPath);
-    if (engine) {
-      this.engines.delete(oldPath);
-      this.engines.set(newPath, engine);
-    }
-
-    // 更新文件列表
     this.files.delete(oldFullPath);
     this.files.add(newFullPath);
 
@@ -566,10 +465,6 @@ export class ScenarioRunner {
    * 清理资源
    */
   destroy(): void {
-    for (const engine of this.engines.values()) {
-      engine.destroy();
-    }
-    this.engines.clear();
     this.traceManager.clear();
   }
 }

@@ -12,21 +12,21 @@
  */
 import { next as Automerge } from "@automerge/automerge";
 import type {
-  MarkdownDoc,
   AssetsDoc,
-  FolderDoc,
   CommentThreadForUI,
+  FolderDoc,
+  MarkdownDoc,
 } from "./schema.js";
 import type {
-  TextSpliceOperation,
-  AssetUploadOperation,
-  AssetDeleteOperation,
   AddCommentThreadOperation,
-  ReplyToCommentOperation,
-  ResolveCommentOperation,
-  FolderRenameOperation,
+  AssetDeleteOperation,
+  AssetUploadOperation,
   FolderAddDocOperation,
   FolderRemoveDocOperation,
+  FolderRenameOperation,
+  ReplyToCommentOperation,
+  ResolveCommentOperation,
+  TextSpliceOperation,
 } from "./operations.js";
 
 // ---------------------------------------------------------------------------

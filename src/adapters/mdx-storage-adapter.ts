@@ -18,8 +18,8 @@
  */
 import { next as Automerge } from "@automerge/automerge";
 import type { FileSystemAdapter } from "./fs-adapter.js";
-import type { MarkdownDoc, ChunkFileMetadata, SnapshotFileMetadata } from "./schema.js";
-import { getGlobalTraceManager, TraceLevel, TraceType } from "./trace.js";
+import type { MarkdownDoc, ChunkFileMetadata, SnapshotFileMetadata } from "../document/schema.js";
+import { getGlobalTraceManager, TraceLevel, TraceType } from "../utils/trace.js";
 
 // ---------------------------------------------------------------------------
 // Constants

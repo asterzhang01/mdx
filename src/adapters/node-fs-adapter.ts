@@ -6,8 +6,7 @@
  *
  * Phase 2 deliverable — bridges @markdownx/core to real file system.
  */
-import * as fs from "node:fs/promises";
-import { watch } from "node:fs";
+import { promises as fs, watch } from "node:fs";
 import type { FileSystemAdapter } from "./fs-adapter.js";
 
 export class NodeFileSystemAdapter implements FileSystemAdapter {

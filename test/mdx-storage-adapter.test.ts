@@ -10,13 +10,13 @@
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import * as Automerge from "@automerge/automerge";
-import { MemoryFileSystemAdapter } from "./helpers/memory-fs-adapter.js";
+import { MemoryFileSystemAdapter } from "../src/adapters/memory-fs-adapter.js";
 import {
   MdxStorageAdapter,
   parseChunkFileName,
   parseSnapshotFileName,
-} from "../src/mdx-storage-adapter.js";
-import type { MarkdownDoc } from "../src/schema.js";
+} from "../src/adapters/mdx-storage-adapter.js";
+import type { MarkdownDoc } from "../src/document/schema.js";
 
 function createTestDoc(content = "# Hello\n"): Automerge.Doc<MarkdownDoc> {
   return Automerge.change(Automerge.init<MarkdownDoc>(), (d) => {

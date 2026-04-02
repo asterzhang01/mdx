@@ -8,9 +8,9 @@
  * - Legacy: index.md + assets/ (no sync capability)
  * - Modern: index.md + assets/ + .mdx/.initialized (with sync capability)
  */
-import type { FileSystemAdapter } from "./fs-adapter.js";
+import type { FileSystemAdapter } from "../adapters/fs-adapter.js";
 import type { DocumentType, DocumentTypeInfo } from "./schema.js";
-import { getGlobalTraceManager, TraceLevel, TraceType } from "./trace.js";
+import { getGlobalTraceManager, TraceLevel, TraceType } from "../utils/trace.js";
 
 // ---------------------------------------------------------------------------
 // Document Type Detection

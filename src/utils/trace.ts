@@ -14,11 +14,11 @@
 // ============================================================================
 
 export enum TraceLevel {
-  DEBUG = 0, // 开发调试
-  INFO = 1, // 一般信息
-  WARN = 2, // 警告
-  ERROR = 3, // 错误
-  FATAL = 4, // 致命错误
+  DEBUG = 0,
+  INFO = 1,
+  WARN = 2,
+  ERROR = 3,
+  FATAL = 4,
 }
 
 // ============================================================================
@@ -26,13 +26,13 @@ export enum TraceLevel {
 // ============================================================================
 
 export enum TraceType {
-  OPERATION = "operation", // 用户操作
-  SYNC = "sync", // 同步事件
-  CRDT = "crdt", // CRDT 变更
-  FILE = "file", // 文件操作
-  PERFORMANCE = "perf", // 性能指标
-  ERROR = "error", // 错误
-  LIFECYCLE = "lifecycle", // 生命周期
+  OPERATION = "operation",
+  SYNC = "sync",
+  CRDT = "crdt",
+  FILE = "file",
+  PERFORMANCE = "perf",
+  ERROR = "error",
+  LIFECYCLE = "lifecycle",
 }
 
 // ============================================================================
@@ -40,33 +40,21 @@ export enum TraceType {
 // ============================================================================
 
 export interface TraceEntry {
-  /** 唯一 ID */
   id: string;
-  /** 时间戳 (毫秒) */
   timestamp: number;
-  /** Trace 级别 */
   level: TraceLevel;
-  /** Trace 类型 */
   type: TraceType;
-  /** 组件名 (e.g., 'SyncEngine', 'Sidebar') */
   component: string;
-  /** 动作 (e.g., 'init', 'save', 'applyChange') */
   action: string;
-  /** 执行时长 (ms) */
   duration?: number;
-  /** 上下文数据 */
   data?: Record<string, unknown>;
-  /** 错误信息 */
   error?: {
     message: string;
     stack?: string;
     code?: string;
   };
-  /** 父 Trace ID (用于嵌套) */
   parentId?: string;
-  /** 设备 ID */
   deviceId?: string;
-  /** 会话 ID */
   sessionId?: string;
 }
 
@@ -90,13 +78,9 @@ export interface TraceFilters {
 // ============================================================================
 
 export interface TraceContext {
-  /** Trace ID */
   id: string;
-  /** 父 Trace ID */
   parentId?: string;
-  /** 标记成功完成 */
   success(data?: Record<string, unknown>): void;
-  /** 标记失败 */
   error(error: Error | string, data?: Record<string, unknown>): void;
 }
 
@@ -110,7 +94,7 @@ export interface TraceStats {
   avgDuration: number;
   maxDuration: number;
   minDuration: number;
-  byType: Record<TraceType, number>;
+  byType: Record<string, number>;
   byComponent: Record<string, number>;
 }
 
@@ -119,13 +103,9 @@ export interface TraceStats {
 // ============================================================================
 
 export interface TraceManagerOptions {
-  /** 最大存储条目数 (默认 10000) */
   maxSize?: number;
-  /** 默认设备 ID */
   deviceId?: string;
-  /** 默认会话 ID */
   sessionId?: string;
-  /** 最小记录级别 (默认 DEBUG) */
   minLevel?: TraceLevel;
 }
 
@@ -145,13 +125,6 @@ export class TraceManager {
     this.minLevel = options.minLevel ?? TraceLevel.DEBUG;
   }
 
-  // -------------------------------------------------------------------------
-  // 核心方法
-  // -------------------------------------------------------------------------
-
-  /**
-   * 开始一个 Trace，返回上下文用于标记完成
-   */
   startTrace(
     component: string,
     action: string,
@@ -175,7 +148,6 @@ export class TraceManager {
 
     this.activeTraces.set(id, context);
 
-    // 立即记录开始事件
     this.addEntry({
       id,
       timestamp: Date.now(),
@@ -191,9 +163,6 @@ export class TraceManager {
     return context;
   }
 
-  /**
-   * 记录即时 Trace
-   */
   log(
     level: TraceLevel,
     type: TraceType,
@@ -227,31 +196,14 @@ export class TraceManager {
     this.addEntry(entry);
   }
 
-  /**
-   * 快捷方法：记录信息
-   */
-  info(
-    component: string,
-    action: string,
-    data?: Record<string, unknown>
-  ): void {
+  info(component: string, action: string, data?: Record<string, unknown>): void {
     this.log(TraceLevel.INFO, TraceType.OPERATION, component, action, data);
   }
 
-  /**
-   * 快捷方法：记录警告
-   */
-  warn(
-    component: string,
-    action: string,
-    data?: Record<string, unknown>
-  ): void {
+  warn(component: string, action: string, data?: Record<string, unknown>): void {
     this.log(TraceLevel.WARN, TraceType.OPERATION, component, action, data);
   }
 
-  /**
-   * 快捷方法：记录错误
-   */
   error(
     component: string,
     action: string,
@@ -261,9 +213,6 @@ export class TraceManager {
     this.log(TraceLevel.ERROR, TraceType.ERROR, component, action, data, error);
   }
 
-  /**
-   * 记录性能指标
-   */
   perf(
     component: string,
     action: string,
@@ -276,20 +225,10 @@ export class TraceManager {
     });
   }
 
-  // -------------------------------------------------------------------------
-  // 查询与导出
-  // -------------------------------------------------------------------------
-
-  /**
-   * 获取所有 Trace
-   */
   getAll(): TraceEntry[] {
     return [...this.traces];
   }
 
-  /**
-   * 查询 Trace
-   */
   query(filters: TraceFilters): TraceEntry[] {
     return this.traces.filter((entry) => {
       if (filters.level !== undefined && entry.level < filters.level) {
@@ -298,19 +237,13 @@ export class TraceManager {
       if (filters.type !== undefined && entry.type !== filters.type) {
         return false;
       }
-      if (
-        filters.component !== undefined &&
-        entry.component !== filters.component
-      ) {
+      if (filters.component !== undefined && entry.component !== filters.component) {
         return false;
       }
       if (filters.action !== undefined && entry.action !== filters.action) {
         return false;
       }
-      if (
-        filters.startTime !== undefined &&
-        entry.timestamp < filters.startTime
-      ) {
+      if (filters.startTime !== undefined && entry.timestamp < filters.startTime) {
         return false;
       }
       if (filters.endTime !== undefined && entry.timestamp > filters.endTime) {
@@ -327,23 +260,14 @@ export class TraceManager {
     });
   }
 
-  /**
-   * 获取单个 Trace
-   */
   getById(id: string): TraceEntry | undefined {
     return this.traces.find((t) => t.id === id);
   }
 
-  /**
-   * 获取子 Trace
-   */
   getChildren(parentId: string): TraceEntry[] {
     return this.traces.filter((t) => t.parentId === parentId);
   }
 
-  /**
-   * 获取 Trace 树
-   */
   getTraceTree(rootId: string): TraceEntry[] {
     const result: TraceEntry[] = [];
     const root = this.getById(rootId);
@@ -357,9 +281,6 @@ export class TraceManager {
     return result;
   }
 
-  /**
-   * 导出为时间线格式
-   */
   exportAsTimeline(): Array<{
     time: string;
     component: string;
@@ -376,20 +297,10 @@ export class TraceManager {
     }));
   }
 
-  /**
-   * 导出为 JSON
-   */
   exportToJSON(): string {
     return JSON.stringify(this.traces, null, 2);
   }
 
-  // -------------------------------------------------------------------------
-  // 统计
-  // -------------------------------------------------------------------------
-
-  /**
-   * 获取统计信息
-   */
   getStats(): TraceStats {
     const withDuration = this.traces.filter((t) => t.duration !== undefined);
     const durations = withDuration.map((t) => t.duration!);
@@ -413,18 +324,11 @@ export class TraceManager {
           : 0,
       maxDuration: durations.length > 0 ? Math.max(...durations) : 0,
       minDuration: durations.length > 0 ? Math.min(...durations) : 0,
-      byType: byType as Record<TraceType, number>,
+      byType,
       byComponent,
     };
   }
 
-  // -------------------------------------------------------------------------
-  // 订阅
-  // -------------------------------------------------------------------------
-
-  /**
-   * 订阅新 Trace
-   */
   subscribe(listener: (entry: TraceEntry) => void): () => void {
     this.listeners.add(listener);
     return () => {
@@ -432,43 +336,27 @@ export class TraceManager {
     };
   }
 
-  // -------------------------------------------------------------------------
-  // 管理
-  // -------------------------------------------------------------------------
-
-  /**
-   * 清空所有 Trace
-   */
   clear(): void {
     this.traces = [];
     this.activeTraces.clear();
   }
 
-  /**
-   * 获取当前 Trace 数量
-   */
   size(): number {
     return this.traces.length;
   }
 
-  // -------------------------------------------------------------------------
-  // 私有方法
-  // -------------------------------------------------------------------------
-
   private addEntry(entry: TraceEntry): void {
     this.traces.push(entry);
 
-    // 限制大小
     if (this.traces.length > this.maxSize) {
       this.traces = this.traces.slice(-this.maxSize);
     }
 
-    // 通知订阅者
     for (const listener of this.listeners) {
       try {
         listener(entry);
       } catch {
-        // 忽略订阅者错误
+        // ignore
       }
     }
   }
@@ -477,10 +365,6 @@ export class TraceManager {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
   }
 }
-
-// ============================================================================
-// TraceContext 实现
-// ============================================================================
 
 class TraceContextImpl implements TraceContext {
   public readonly id: string;
@@ -554,13 +438,7 @@ class TraceContextImpl implements TraceContext {
       sessionId: this.sessionId,
     });
   }
-
-
 }
-
-// ============================================================================
-// 全局 TraceManager 实例 (可选)
-// ============================================================================
 
 let globalTraceManager: TraceManager | null = null;
 
@@ -574,3 +452,4 @@ export function getGlobalTraceManager(): TraceManager {
 export function setGlobalTraceManager(manager: TraceManager): void {
   globalTraceManager = manager;
 }
+

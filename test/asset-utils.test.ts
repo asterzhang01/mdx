@@ -9,7 +9,7 @@
  *   UT-005: findOrphanedAssets returns empty array when all assets referenced
  */
 import { describe, it, expect } from 'vitest';
-import { findReferencedAssets, findOrphanedAssets } from '../src/asset-utils.js';
+import { findReferencedAssets, findOrphanedAssets } from "../src/utils/asset-utils.js";
 
 // ---------------------------------------------------------------------------
 // UT-001: findReferencedAssets extracts asset filenames from markdown content
