@@ -1,17 +1,17 @@
-# mdx-spec
+# mdx
 
 Core format specification and low-level storage for .mdx files (Open Source)
 
 ## Installation
 
 ```bash
-npm install mdx-spec
+npm install mdx
 ```
 
 ## Usage
 
 ```typescript
-import { MdxDocument } from 'mdx-spec';
+import { MdxDocument } from 'mdx';
 
 // Your code here
 ```

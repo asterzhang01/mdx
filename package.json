@@ -1,5 +1,5 @@
 {
-  "name": "mdx-spec",
+    "name": "mdx",
   "version": "0.1.0",
   "type": "module",
   "description": "Core format specification and low-level storage for .mdx files (Open Source)",
