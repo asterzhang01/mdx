@@ -1,0 +1,47 @@
+{
+  "name": "mdx-spec",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Core format specification and low-level storage for .mdx files (Open Source)",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@automerge/automerge": "^2.2.0",
+    "@automerge/automerge-repo": "^1.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.2",
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  },
+  "author": "asterzhang01",
+  "license": "MIT",
+  "homepage": "https://github.com/asterzhang01/mdx",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/asterzhang01/mdx.git"
+  },
+  "bugs": {
+    "url": "https://github.com/asterzhang01/mdx/issues"
+  },
+  "keywords": [
+    "mdx",
+    "markdown",
+    "editor"
+  ]
+}
