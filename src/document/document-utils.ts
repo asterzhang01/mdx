@@ -9,6 +9,7 @@
  * - Modern: index.md + assets/ + .mdx/.initialized (with sync capability)
  */
 import type { FileSystemAdapter } from "../adapters/fs-adapter.js";
+import { MdStorageAdapter } from "../adapters/md-storage-adapter.js";
 import type { DocumentType, DocumentTypeInfo } from "./schema.js";
 import { getGlobalTraceManager, TraceLevel, TraceType } from "../utils/trace.js";
 
@@ -209,6 +210,31 @@ export async function createMarkdownXDocument(
   initialContent = "# Untitled\n\n"
 ): Promise<string> {
   return createModernDocument(path, fsAdapter, initialContent);
+}
+
+// ---------------------------------------------------------------------------
+// Legacy document access
+// ---------------------------------------------------------------------------
+
+export async function loadLegacyDocumentContent(
+  path: string,
+  fsAdapter: FileSystemAdapter,
+): Promise<string> {
+  const adapter = new MdStorageAdapter(path, fsAdapter);
+  return adapter.loadContent();
+}
+
+export async function saveLegacyDocumentContent(
+  path: string,
+  fsAdapter: FileSystemAdapter,
+  content: string,
+): Promise<void> {
+  const adapter = new MdStorageAdapter(path, fsAdapter);
+  await adapter.saveContent(content);
+}
+
+export function getLegacyDocumentAssetsDir(path: string): string {
+  return `${path}/assets`;
 }
 
 // ---------------------------------------------------------------------------

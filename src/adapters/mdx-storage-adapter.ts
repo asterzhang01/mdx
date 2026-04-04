@@ -28,8 +28,14 @@ import {
   serialiseChunk,
   deserialiseChunk,
   serialiseSnapshot,
-  deserialiseSnapshot,
 } from "../utils/filename-utils.js";
+import { createStoragePaths } from "./internal/storage-paths.js";
+import {
+  collectDeviceIds,
+  findLatestChunk,
+  findLatestSnapshot,
+  readDeviceDocumentState,
+} from "./internal/device-files.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -47,6 +53,9 @@ const COMPACT_AGE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export class MdxStorageAdapter {
   private readonly basePath: string;
   private readonly metaDir: string;
+  private readonly assetsDir: string;
+  private readonly indexPath: string;
+  private readonly indexTmpPath: string;
   private readonly fs: FileSystemAdapter;
   private readonly deviceId: string;
 
@@ -60,8 +69,13 @@ export class MdxStorageAdapter {
   private readonly trace = getGlobalTraceManager();
 
   constructor(basePath: string, fs: FileSystemAdapter, deviceId: string) {
-    this.basePath = basePath;
-    this.metaDir = `${basePath}/.mdx`;
+    const paths = createStoragePaths(basePath);
+
+    this.basePath = paths.basePath;
+    this.metaDir = paths.metaDir;
+    this.assetsDir = paths.assetsDir;
+    this.indexPath = paths.indexPath;
+    this.indexTmpPath = paths.indexTmpPath;
     this.fs = fs;
     this.deviceId = deviceId;
 
@@ -79,10 +93,10 @@ export class MdxStorageAdapter {
   /** Ensure directory structure exists */
   async ensureDirectories(): Promise<void> {
     await this.fs.mkdir(this.metaDir);
-    await this.fs.mkdir(`${this.basePath}/assets`);
+    await this.fs.mkdir(this.assetsDir);
     this.trace.log(TraceLevel.DEBUG, TraceType.FILE, "MdxStorageAdapter", "ensureDirectories", {
       metaDir: this.metaDir,
-      assetsDir: `${this.basePath}/assets`
+      assetsDir: this.assetsDir
     });
   }
 
@@ -95,105 +109,46 @@ export class MdxStorageAdapter {
 
     await this.ensureDirectories();
     const files = await this.fs.readdir(this.metaDir);
-
-    // Find latest snapshot for this device
-    const snapshot = this.findLatestSnapshot(files, this.deviceId);
-    let doc: Automerge.Doc<MarkdownDoc> | null = null;
-    let watermark = -1;
+    const state = await readDeviceDocumentState(this.fs, this.metaDir, files, this.deviceId);
+    const snapshot = findLatestSnapshot(files, this.deviceId);
+    const chunk = findLatestChunk(files, this.deviceId);
 
     if (snapshot) {
       this.trace.log(TraceLevel.DEBUG, TraceType.FILE, "MdxStorageAdapter", "loadLocal:snapshot", {
         fileName: snapshot.fileName,
         timestamp: snapshot.timestamp
       });
-      const data = await this.fs.readFile(`${this.metaDir}/${snapshot.fileName}`);
-      const meta = deserialiseSnapshot(data);
-      doc = Automerge.load<MarkdownDoc>(meta.binary);
-      watermark = meta.watermark;
-      this.lastCompactTimestamp = meta.timestamp;
     }
 
-    // Find latest chunk for this device
-    const chunk = this.findLatestChunk(files, this.deviceId);
     if (chunk) {
       this.trace.log(TraceLevel.DEBUG, TraceType.FILE, "MdxStorageAdapter", "loadLocal:chunk", {
         fileName: chunk.fileName,
         timestamp: chunk.timestamp,
         seqNo: chunk.seqNo
       });
-      const data = await this.fs.readFile(`${this.metaDir}/${chunk.fileName}`);
-      const chunkMeta = deserialiseChunk(data);
-
-      // Apply only changes after the watermark
-      const changesToApply = watermark >= 0
-        ? chunkMeta.changes.slice(watermark + 1)
-        : chunkMeta.changes;
-
-      if (changesToApply.length > 0) {
-        this.trace.log(TraceLevel.DEBUG, TraceType.CRDT, "MdxStorageAdapter", "loadLocal:applyChanges", {
-          changesCount: changesToApply.length,
-          watermark
-        });
-        if (!doc) {
-          doc = Automerge.init<MarkdownDoc>();
-        }
-        for (const change of changesToApply) {
-          const [applied]: [Automerge.Doc<MarkdownDoc>] = Automerge.applyChanges(doc!, [change]);
-          doc = applied;
-        }
-      }
-
-      this.sequenceNumber = chunkMeta.sequenceNumber;
     }
 
+    this.sequenceNumber = state.sequenceNumber;
+    this.lastCompactTimestamp = state.compactTimestamp;
+
     ctx.success({
-      hasSnapshot: !!snapshot,
-      hasChunk: !!chunk,
-      hasDoc: !!doc,
+      hasSnapshot: state.hasSnapshot,
+      hasChunk: state.hasChunk,
+      hasDoc: !!state.doc,
       sequenceNumber: this.sequenceNumber
     });
 
-    return doc;
+    return state.doc;
   }
 
   /**
    * Load a remote device's document state from its snapshot + chunk.
    */
   async loadRemote(remoteDeviceId: string): Promise<Automerge.Doc<MarkdownDoc> | null> {
+    await this.ensureDirectories();
     const files = await this.fs.readdir(this.metaDir);
-
-    const snapshot = this.findLatestSnapshot(files, remoteDeviceId);
-    let doc: Automerge.Doc<MarkdownDoc> | null = null;
-    let watermark = -1;
-
-    if (snapshot) {
-      const data = await this.fs.readFile(`${this.metaDir}/${snapshot.fileName}`);
-      const meta = deserialiseSnapshot(data);
-      doc = Automerge.load<MarkdownDoc>(meta.binary);
-      watermark = meta.watermark;
-    }
-
-    const chunk = this.findLatestChunk(files, remoteDeviceId);
-    if (chunk) {
-      const data = await this.fs.readFile(`${this.metaDir}/${chunk.fileName}`);
-      const chunkMeta = deserialiseChunk(data);
-
-      const changesToApply = watermark >= 0
-        ? chunkMeta.changes.slice(watermark + 1)
-        : chunkMeta.changes;
-
-      if (changesToApply.length > 0) {
-        if (!doc) {
-          doc = Automerge.init<MarkdownDoc>();
-        }
-        for (const change of changesToApply) {
-          const [applied]: [Automerge.Doc<MarkdownDoc>] = Automerge.applyChanges(doc!, [change]);
-          doc = applied;
-        }
-      }
-    }
-
-    return doc;
+    const state = await readDeviceDocumentState(this.fs, this.metaDir, files, remoteDeviceId);
+    return state.doc;
   }
 
   /**
@@ -240,7 +195,7 @@ export class MdxStorageAdapter {
 
       // Load existing chunk for this device (if any) and merge
       const files = await this.fs.readdir(this.metaDir);
-      const existingChunk = this.findLatestChunk(files, this.deviceId);
+      const existingChunk = findLatestChunk(files, this.deviceId);
       let allChanges: Uint8Array[] = [];
 
       if (existingChunk) {
@@ -399,13 +354,11 @@ export class MdxStorageAdapter {
    */
   async exportIndexMd(doc: Automerge.Doc<MarkdownDoc>): Promise<void> {
     const content = doc.content ?? "";
-    const tmpPath = `${this.basePath}/index.md.tmp`;
-    const finalPath = `${this.basePath}/index.md`;
-    await this.fs.writeTextFile(tmpPath, content);
-    await this.fs.rename(tmpPath, finalPath);
+    await this.fs.writeTextFile(this.indexTmpPath, content);
+    await this.fs.rename(this.indexTmpPath, this.indexPath);
 
     this.trace.log(TraceLevel.DEBUG, TraceType.FILE, "MdxStorageAdapter", "exportIndexMd", {
-      path: finalPath,
+      path: this.indexPath,
       contentLength: content.length
     });
   }
@@ -415,14 +368,13 @@ export class MdxStorageAdapter {
    * Returns null if it doesn't exist.
    */
   async readIndexMd(): Promise<string | null> {
-    const indexPath = `${this.basePath}/index.md`;
     try {
-      if (!await this.fs.exists(indexPath)) {
+      if (!await this.fs.exists(this.indexPath)) {
         return null;
       }
-      const content = await this.fs.readTextFile(indexPath);
+      const content = await this.fs.readTextFile(this.indexPath);
       this.trace.log(TraceLevel.DEBUG, TraceType.FILE, "MdxStorageAdapter", "readIndexMd", {
-        path: indexPath,
+        path: this.indexPath,
         contentLength: content.length
       });
       return content;
@@ -455,21 +407,7 @@ export class MdxStorageAdapter {
   async listDeviceIds(): Promise<string[]> {
     await this.ensureDirectories();
     const files = await this.fs.readdir(this.metaDir);
-    const deviceIds = new Set<string>();
-
-    for (const file of files) {
-      const chunkParsed = parseChunkFileName(file);
-      if (chunkParsed) {
-        deviceIds.add(chunkParsed.deviceId);
-        continue;
-      }
-      const snapParsed = parseSnapshotFileName(file);
-      if (snapParsed) {
-        deviceIds.add(snapParsed.deviceId);
-      }
-    }
-
-    const result = [...deviceIds];
+    const result = collectDeviceIds(files);
     this.trace.log(TraceLevel.DEBUG, TraceType.FILE, "MdxStorageAdapter", "listDeviceIds", {
       deviceIds: result,
       totalFiles: files.length
@@ -481,38 +419,9 @@ export class MdxStorageAdapter {
   // -----------------------------------------------------------------------
   // Private helpers
   // -----------------------------------------------------------------------
-
-  private findLatestChunk(
-    files: string[],
-    deviceId: string
-  ): { fileName: string; timestamp: number; seqNo: number } | null {
-    let latest: { fileName: string; timestamp: number; seqNo: number } | null = null;
-
-    for (const file of files) {
-      const parsed = parseChunkFileName(file);
-      if (!parsed || parsed.deviceId !== deviceId) continue;
-      if (!latest || parsed.timestamp > latest.timestamp) {
-        latest = { fileName: file, timestamp: parsed.timestamp, seqNo: parsed.seqNo };
-      }
-    }
-
-    return latest;
-  }
-
-  private findLatestSnapshot(
-    files: string[],
-    deviceId: string
-  ): { fileName: string; timestamp: number } | null {
-    let latest: { fileName: string; timestamp: number } | null = null;
-
-    for (const file of files) {
-      const parsed = parseSnapshotFileName(file);
-      if (!parsed || parsed.deviceId !== deviceId) continue;
-      if (!latest || parsed.timestamp > latest.timestamp) {
-        latest = { fileName: file, timestamp: parsed.timestamp };
-      }
-    }
-
-    return latest;
-  }
 }
+
+export {
+  parseChunkFileName,
+  parseSnapshotFileName,
+};
