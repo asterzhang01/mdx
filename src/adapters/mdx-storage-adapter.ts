@@ -20,6 +20,16 @@ import { next as Automerge } from "@automerge/automerge";
 import type { FileSystemAdapter } from "./fs-adapter.js";
 import type { MarkdownDoc, ChunkFileMetadata, SnapshotFileMetadata } from "../document/schema.js";
 import { getGlobalTraceManager, TraceLevel, TraceType } from "../utils/trace.js";
+import {
+  chunkFileName,
+  snapshotFileName,
+  parseChunkFileName,
+  parseSnapshotFileName,
+  serialiseChunk,
+  deserialiseChunk,
+  serialiseSnapshot,
+  deserialiseSnapshot,
+} from "../utils/filename-utils.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -29,139 +39,6 @@ const DEBOUNCE_MS = 500;
 const COMPACT_SIZE_THRESHOLD = 1_048_576; // 1 MB
 const COMPACT_CHANGES_THRESHOLD = 500;
 const COMPACT_AGE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
-// ---------------------------------------------------------------------------
-// File-name helpers
-// ---------------------------------------------------------------------------
-
-function chunkFileName(deviceId: string, timestamp: number, seqNo: number): string {
-  const paddedSeqNo = String(seqNo).padStart(4, "0");
-  return `${deviceId}-${timestamp}-${paddedSeqNo}.chunk`;
-}
-
-function snapshotFileName(deviceId: string, timestamp: number): string {
-  return `${deviceId}-${timestamp}.snapshot`;
-}
-
-function parseChunkFileName(name: string): { deviceId: string; timestamp: number; seqNo: number } | null {
-  const match = name.match(/^(.+)-(\d{13})-(\d{4})\.chunk$/);
-  if (!match) return null;
-  return { deviceId: match[1], timestamp: Number(match[2]), seqNo: Number(match[3]) };
-}
-
-function parseSnapshotFileName(name: string): { deviceId: string; timestamp: number } | null {
-  const match = name.match(/^(.+)-(\d{13})\.snapshot$/);
-  if (!match) return null;
-  return { deviceId: match[1], timestamp: Number(match[2]) };
-}
-
-// ---------------------------------------------------------------------------
-// Serialisation helpers (chunk / snapshot envelope)
-// ---------------------------------------------------------------------------
-
-/**
- * Encode a ChunkFileMetadata into a single Uint8Array.
- *
- * Layout:
- *   [4 bytes header length (LE)] [JSON header] [change₁ length (4 LE)] [change₁] …
- */
-function serialiseChunk(meta: ChunkFileMetadata): Uint8Array {
-  const header = JSON.stringify({
-    deviceId: meta.deviceId,
-    timestamp: meta.timestamp,
-    sequenceNumber: meta.sequenceNumber,
-  });
-  const headerBytes = new TextEncoder().encode(header);
-
-  let totalSize = 4 + headerBytes.length;
-  for (const change of meta.changes) {
-    totalSize += 4 + change.length;
-  }
-
-  const buffer = new Uint8Array(totalSize);
-  const view = new DataView(buffer.buffer);
-  let offset = 0;
-
-  // header length + header
-  view.setUint32(offset, headerBytes.length, true);
-  offset += 4;
-  buffer.set(headerBytes, offset);
-  offset += headerBytes.length;
-
-  // changes
-  for (const change of meta.changes) {
-    view.setUint32(offset, change.length, true);
-    offset += 4;
-    buffer.set(change, offset);
-    offset += change.length;
-  }
-
-  return buffer;
-}
-
-function deserialiseChunk(data: Uint8Array): ChunkFileMetadata {
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  let offset = 0;
-
-  const headerLen = view.getUint32(offset, true);
-  offset += 4;
-  const headerBytes = data.slice(offset, offset + headerLen);
-  offset += headerLen;
-  const header = JSON.parse(new TextDecoder().decode(headerBytes));
-
-  const changes: Uint8Array[] = [];
-  while (offset < data.length) {
-    const changeLen = view.getUint32(offset, true);
-    offset += 4;
-    changes.push(data.slice(offset, offset + changeLen));
-    offset += changeLen;
-  }
-
-  return {
-    deviceId: header.deviceId,
-    timestamp: header.timestamp,
-    sequenceNumber: header.sequenceNumber,
-    changes,
-  };
-}
-
-/**
- * Encode a SnapshotFileMetadata into a single Uint8Array.
- *
- * Layout: [4 bytes header length (LE)] [JSON header] [binary]
- */
-function serialiseSnapshot(meta: SnapshotFileMetadata): Uint8Array {
-  const header = JSON.stringify({
-    deviceId: meta.deviceId,
-    timestamp: meta.timestamp,
-    watermark: meta.watermark,
-  });
-  const headerBytes = new TextEncoder().encode(header);
-
-  const buffer = new Uint8Array(4 + headerBytes.length + meta.binary.length);
-  const view = new DataView(buffer.buffer);
-
-  view.setUint32(0, headerBytes.length, true);
-  buffer.set(headerBytes, 4);
-  buffer.set(meta.binary, 4 + headerBytes.length);
-
-  return buffer;
-}
-
-function deserialiseSnapshot(data: Uint8Array): SnapshotFileMetadata {
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const headerLen = view.getUint32(0, true);
-  const headerBytes = data.slice(4, 4 + headerLen);
-  const header = JSON.parse(new TextDecoder().decode(headerBytes));
-  const binary = data.slice(4 + headerLen);
-
-  return {
-    deviceId: header.deviceId,
-    timestamp: header.timestamp,
-    watermark: header.watermark,
-    binary,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // MdxStorageAdapter
@@ -534,6 +411,30 @@ export class MdxStorageAdapter {
   }
 
   /**
+   * Read the current index.md file.
+   * Returns null if it doesn't exist.
+   */
+  async readIndexMd(): Promise<string | null> {
+    const indexPath = `${this.basePath}/index.md`;
+    try {
+      if (!await this.fs.exists(indexPath)) {
+        return null;
+      }
+      const content = await this.fs.readTextFile(indexPath);
+      this.trace.log(TraceLevel.DEBUG, TraceType.FILE, "MdxStorageAdapter", "readIndexMd", {
+        path: indexPath,
+        contentLength: content.length
+      });
+      return content;
+    } catch (error) {
+      this.trace.log(TraceLevel.WARN, TraceType.FILE, "MdxStorageAdapter", "readIndexMd:error", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  /**
    * Save document state and export index.md in one call (Dual-Write).
    */
   async saveAndExport(doc: Automerge.Doc<MarkdownDoc>, changes: Uint8Array[]): Promise<void> {
@@ -615,15 +516,3 @@ export class MdxStorageAdapter {
     return latest;
   }
 }
-
-// Re-export helpers for testing
-export {
-  chunkFileName,
-  snapshotFileName,
-  parseChunkFileName,
-  parseSnapshotFileName,
-  serialiseChunk,
-  deserialiseChunk,
-  serialiseSnapshot,
-  deserialiseSnapshot,
-};

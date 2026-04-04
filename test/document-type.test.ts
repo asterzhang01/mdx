@@ -27,7 +27,7 @@ import {
   isMarkdownXDocument,
   convertLegacyToModern,
 } from "../src/document/document-utils.js";
-import { MdStorageAdapter } from "../src/adapters/legacy-storage-adapter.js";
+import { MdStorageAdapter } from "../src/adapters/md-storage-adapter.js";
 import type { DocumentType, DocumentTypeInfo } from "../src/document/schema.js";
 
 // ==========================================================================

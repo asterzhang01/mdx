@@ -318,3 +318,53 @@ export function resolveCommentThreadPositions(
       ];
     });
 }
+
+// ---------------------------------------------------------------------------
+// High-level convenience APIs for FileSyncEngine
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a new MarkdownDoc with initial content.
+ */
+export function createDocument(initialContent: string = "# Untitled\n\n"): Automerge.Doc<MarkdownDoc> {
+  return Automerge.change(Automerge.init<MarkdownDoc>(), (d) => {
+    d.content = initialContent;
+    d.commentThreads = {};
+    d.assetsDocUrl = "" as never;
+  });
+}
+
+/**
+ * Get all changes from a document for persistence.
+ */
+export function getAllChanges(doc: Automerge.Doc<MarkdownDoc>): Uint8Array[] {
+  return Automerge.getAllChanges(doc);
+}
+
+/**
+ * Extract the last local change for incremental save.
+ */
+export function extractChanges(doc: Automerge.Doc<MarkdownDoc>): Uint8Array[] {
+  const lastChange = Automerge.getLastLocalChange(doc);
+  return lastChange ? [lastChange] : [];
+}
+
+/**
+ * Apply a content change using character-level splice.
+ */
+export function applyContentChange(
+  doc: Automerge.Doc<MarkdownDoc>,
+  newContent: string
+): { doc: Automerge.Doc<MarkdownDoc>; changed: boolean } {
+  const currentContent = doc.content ?? "";
+  
+  if (newContent === currentContent) {
+    return { doc, changed: false };
+  }
+  
+  const updatedDoc = Automerge.change(doc, (d) => {
+    Automerge.splice(d, ["content"], 0, currentContent.length, newContent);
+  });
+  
+  return { doc: updatedDoc, changed: true };
+}
