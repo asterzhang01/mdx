@@ -8,8 +8,8 @@
  * - Legacy: index.md + assets/ (no sync capability)
  * - Modern: index.md + assets/ + .mdx/.initialized (with sync capability)
  */
-import type { FileSystemAdapter } from "../adapters/fs-adapter.js";
-import { MdStorageAdapter } from "../adapters/md-storage-adapter.js";
+import type { FileSystemAdapter } from "../fs/fs-adapter.js";
+import { MdDocumentStorage } from "../storage/md-document-storage.js";
 import type { DocumentType, DocumentTypeInfo } from "./schema.js";
 import { getGlobalTraceManager, TraceLevel, TraceType } from "../utils/trace.js";
 
@@ -20,7 +20,7 @@ import { getGlobalTraceManager, TraceLevel, TraceType } from "../utils/trace.js"
 /**
  * Detect the type of a document directory.
  *
- * - Returns 'modern' if .mdx/.initialized exists
+ * - Returns 'modern' if .mdx/.initialized exists, even when index.md is absent
  * - Returns 'legacy' if index.md exists but no .mdx/.initialized
  * - Returns null if not a valid document
  */
@@ -31,13 +31,22 @@ export async function detectDocumentType(
   const trace = getGlobalTraceManager();
 
   try {
+    const hasInitialized = await fsAdapter.exists(`${path}/.mdx/.initialized`);
+    if (hasInitialized) {
+      trace.log(TraceLevel.DEBUG, TraceType.FILE, "detectDocumentType", "result", {
+        path,
+        hasInitialized,
+        hasIndexMd: await fsAdapter.exists(`${path}/index.md`),
+        type: "modern"
+      });
+      return "modern";
+    }
+
     const hasIndexMd = await fsAdapter.exists(`${path}/index.md`);
     if (!hasIndexMd) {
       trace.log(TraceLevel.DEBUG, TraceType.FILE, "detectDocumentType", "noIndexMd", { path });
       return null;
     }
-
-    const hasInitialized = await fsAdapter.exists(`${path}/.mdx/.initialized`);
     const type: DocumentType = hasInitialized ? 'modern' : 'legacy';
 
     trace.log(TraceLevel.DEBUG, TraceType.FILE, "detectDocumentType", "result", {
@@ -220,7 +229,7 @@ export async function loadLegacyDocumentContent(
   path: string,
   fsAdapter: FileSystemAdapter,
 ): Promise<string> {
-  const adapter = new MdStorageAdapter(path, fsAdapter);
+  const adapter = new MdDocumentStorage(path, fsAdapter);
   return adapter.loadContent();
 }
 
@@ -229,7 +238,7 @@ export async function saveLegacyDocumentContent(
   fsAdapter: FileSystemAdapter,
   content: string,
 ): Promise<void> {
-  const adapter = new MdStorageAdapter(path, fsAdapter);
+  const adapter = new MdDocumentStorage(path, fsAdapter);
   await adapter.saveContent(content);
 }
 

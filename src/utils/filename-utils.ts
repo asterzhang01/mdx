@@ -5,7 +5,7 @@
  * used in the CRDT sync protocol.
  */
 
-import type { ChunkFileMetadata, SnapshotFileMetadata } from "../document/schema.js";
+import type { ChunkFileMetadata, SnapshotFileMetadata } from "../sync/schema.js";
 
 // ---------------------------------------------------------------------------
 // File name generation

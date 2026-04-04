@@ -1,5 +1,5 @@
 /**
- * Tests for MdxStorageAdapter
+ * Tests for MdxDocumentStorage
  *
  * Covers:
  *   • chunk file write with correct naming convention
@@ -10,12 +10,12 @@
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import * as Automerge from "@automerge/automerge";
-import { MemoryFileSystemAdapter } from "../src/adapters/memory-fs-adapter.js";
+import { MemoryFileSystemAdapter } from "../src/fs/memory-fs-adapter.js";
 import {
-  MdxStorageAdapter,
+  MdxDocumentStorage,
   parseChunkFileName,
   parseSnapshotFileName,
-} from "../src/adapters/mdx-storage-adapter.js";
+} from "../src/storage/mdx-document-storage.js";
 import type { MarkdownDoc } from "../src/document/schema.js";
 
 function createTestDoc(content = "# Hello\n"): Automerge.Doc<MarkdownDoc> {
@@ -26,15 +26,15 @@ function createTestDoc(content = "# Hello\n"): Automerge.Doc<MarkdownDoc> {
   });
 }
 
-describe("MdxStorageAdapter", () => {
+describe("MdxDocumentStorage", () => {
   let fs: MemoryFileSystemAdapter;
-  let adapter: MdxStorageAdapter;
+  let storage: MdxDocumentStorage;
   const basePath = "/docs/note.mdx";
   const deviceId = "DEVICE-A";
 
   beforeEach(() => {
     fs = new MemoryFileSystemAdapter();
-    adapter = new MdxStorageAdapter(basePath, fs, deviceId);
+    storage = new MdxDocumentStorage(basePath, fs, deviceId);
   });
 
   // -----------------------------------------------------------------------
@@ -47,9 +47,9 @@ describe("MdxStorageAdapter", () => {
       const changes = Automerge.getAllChanges(doc);
 
       for (const change of changes) {
-        adapter.appendChange(change);
+        storage.appendChange(change);
       }
-      await adapter.flushChanges();
+      await storage.flushChanges();
 
       const metaFiles = await fs.readdir(`${basePath}/.mdx`);
       const chunkFiles = metaFiles.filter((f) => f.endsWith(".chunk"));
@@ -67,9 +67,9 @@ describe("MdxStorageAdapter", () => {
 
       // First write
       for (const change of changes) {
-        adapter.appendChange(change);
+        storage.appendChange(change);
       }
-      await adapter.flushChanges();
+      await storage.flushChanges();
 
       // Second write with more changes
       const doc2 = Automerge.change(doc, (d) => {
@@ -77,9 +77,9 @@ describe("MdxStorageAdapter", () => {
       });
       const newChanges = Automerge.getLastLocalChange(doc2);
       if (newChanges) {
-        adapter.appendChange(newChanges);
+        storage.appendChange(newChanges);
       }
-      await adapter.flushChanges();
+      await storage.flushChanges();
 
       const metaFiles = await fs.readdir(`${basePath}/.mdx`);
       const chunkFiles = metaFiles.filter((f) => f.endsWith(".chunk"));
@@ -98,12 +98,12 @@ describe("MdxStorageAdapter", () => {
       const changes = Automerge.getAllChanges(doc);
 
       for (const change of changes) {
-        adapter.appendChange(change);
+        storage.appendChange(change);
       }
-      await adapter.flushChanges();
+      await storage.flushChanges();
 
-      await adapter.compact(doc);
-      await adapter.exportIndexMd(doc);
+      await storage.compact(doc);
+      await storage.exportIndexMd(doc);
 
       const metaFiles = await fs.readdir(`${basePath}/.mdx`);
       const snapshotFiles = metaFiles.filter((f) => f.endsWith(".snapshot"));
@@ -123,11 +123,11 @@ describe("MdxStorageAdapter", () => {
       const changes = Automerge.getAllChanges(doc);
 
       for (const change of changes) {
-        adapter.appendChange(change);
+        storage.appendChange(change);
       }
-      await adapter.flushChanges();
+      await storage.flushChanges();
 
-      await adapter.compact(doc);
+      await storage.compact(doc);
 
       const metaFiles = await fs.readdir(`${basePath}/.mdx`);
       const chunkFiles = metaFiles.filter((f) => f.endsWith(".chunk"));
@@ -139,12 +139,12 @@ describe("MdxStorageAdapter", () => {
       const changes = Automerge.getAllChanges(doc);
 
       for (const change of changes) {
-        adapter.appendChange(change);
+        storage.appendChange(change);
       }
-      await adapter.flushChanges();
+      await storage.flushChanges();
 
       // First compact
-      await adapter.compact(doc);
+      await storage.compact(doc);
 
       // Make more changes and compact again
       const doc2 = Automerge.change(doc, (d) => {
@@ -152,10 +152,10 @@ describe("MdxStorageAdapter", () => {
       });
       const newChange = Automerge.getLastLocalChange(doc2);
       if (newChange) {
-        adapter.appendChange(newChange);
+        storage.appendChange(newChange);
       }
-      await adapter.flushChanges();
-      await adapter.compact(doc2);
+      await storage.flushChanges();
+      await storage.compact(doc2);
 
       const metaFiles = await fs.readdir(`${basePath}/.mdx`);
       const snapshotFiles = metaFiles.filter((f) => f.endsWith(".snapshot"));
@@ -174,13 +174,13 @@ describe("MdxStorageAdapter", () => {
       const changes = Automerge.getAllChanges(doc);
 
       for (const change of changes) {
-        adapter.appendChange(change);
+        storage.appendChange(change);
       }
-      await adapter.flushChanges();
+      await storage.flushChanges();
 
-      // Create a new adapter instance (simulates restart)
-      const adapter2 = new MdxStorageAdapter(basePath, fs, deviceId);
-      const loaded = await adapter2.loadLocal();
+      // Create a new storage instance (simulates restart)
+      const reloadedStorage = new MdxDocumentStorage(basePath, fs, deviceId);
+      const loaded = await reloadedStorage.loadLocal();
 
       expect(loaded).not.toBeNull();
       expect(String(loaded!.content)).toBe("# Load Test\n");
@@ -191,10 +191,10 @@ describe("MdxStorageAdapter", () => {
       const changes = Automerge.getAllChanges(doc);
 
       for (const change of changes) {
-        adapter.appendChange(change);
+        storage.appendChange(change);
       }
-      await adapter.flushChanges();
-      await adapter.compact(doc);
+      await storage.flushChanges();
+      await storage.compact(doc);
 
       // Add more changes after snapshot
       const doc2 = Automerge.change(doc, (d) => {
@@ -202,13 +202,13 @@ describe("MdxStorageAdapter", () => {
       });
       const newChange = Automerge.getLastLocalChange(doc2);
       if (newChange) {
-        adapter.appendChange(newChange);
+        storage.appendChange(newChange);
       }
-      await adapter.flushChanges();
+      await storage.flushChanges();
 
-      // Load from new adapter
-      const adapter2 = new MdxStorageAdapter(basePath, fs, deviceId);
-      const loaded = await adapter2.loadLocal();
+      // Load from a new storage instance
+      const reloadedStorage = new MdxDocumentStorage(basePath, fs, deviceId);
+      const loaded = await reloadedStorage.loadLocal();
 
       expect(loaded).not.toBeNull();
       // The loaded doc should have the post-snapshot changes
@@ -216,7 +216,7 @@ describe("MdxStorageAdapter", () => {
     });
 
     it("returns null when no data exists", async () => {
-      const loaded = await adapter.loadLocal();
+      const loaded = await storage.loadLocal();
       expect(loaded).toBeNull();
     });
   });
@@ -237,21 +237,21 @@ describe("MdxStorageAdapter", () => {
       const changes2 = Automerge.getAllChanges(doc2);
 
       // Write old chunk
-      const oldAdapter = new MdxStorageAdapter(basePath, fs, deviceId);
+      const oldAdapter = new MdxDocumentStorage(basePath, fs, deviceId);
       for (const c of changes1) {
         oldAdapter.appendChange(c);
       }
       await oldAdapter.flushChanges();
 
       // Manually write a newer chunk (simulating crash left old one)
-      const newerAdapter = new MdxStorageAdapter(basePath, fs, deviceId);
+      const newerAdapter = new MdxDocumentStorage(basePath, fs, deviceId);
       for (const c of changes2) {
         newerAdapter.appendChange(c);
       }
       await newerAdapter.flushChanges();
 
       // Load should get the latest
-      const loadAdapter = new MdxStorageAdapter(basePath, fs, deviceId);
+      const loadAdapter = new MdxDocumentStorage(basePath, fs, deviceId);
       const loaded = await loadAdapter.loadLocal();
       expect(loaded).not.toBeNull();
     });
@@ -266,19 +266,19 @@ describe("MdxStorageAdapter", () => {
       // Device A writes
       const docA = createTestDoc("# Device A\n");
       for (const c of Automerge.getAllChanges(docA)) {
-        adapter.appendChange(c);
+        storage.appendChange(c);
       }
-      await adapter.flushChanges();
+      await storage.flushChanges();
 
       // Device B writes
-      const adapterB = new MdxStorageAdapter(basePath, fs, "DEVICE-B");
+      const adapterB = new MdxDocumentStorage(basePath, fs, "DEVICE-B");
       const docB = createTestDoc("# Device B\n");
       for (const c of Automerge.getAllChanges(docB)) {
         adapterB.appendChange(c);
       }
       await adapterB.flushChanges();
 
-      const deviceIds = await adapter.listDeviceIds();
+      const deviceIds = await storage.listDeviceIds();
       expect(deviceIds).toContain("DEVICE-A");
       expect(deviceIds).toContain("DEVICE-B");
       expect(deviceIds.length).toBe(2);
@@ -292,8 +292,8 @@ describe("MdxStorageAdapter", () => {
   describe("exportIndexMd", () => {
     it("atomically exports index.md from document content", async () => {
       const doc = createTestDoc("# Export Test\n\nSome content.");
-      await adapter.ensureDirectories();
-      await adapter.exportIndexMd(doc);
+      await storage.ensureDirectories();
+      await storage.exportIndexMd(doc);
 
       const content = await fs.readTextFile(`${basePath}/index.md`);
       expect(content).toBe("# Export Test\n\nSome content.");

@@ -6,7 +6,7 @@
  *   - Writes to assets/ directory with hash-based filename
  *   - Returns relative path for Markdown embedding
  */
-import { type FileSystemAdapter } from "../adapters/fs-adapter.js";
+import { type FileSystemAdapter } from "../fs/fs-adapter.js";
 
 /** Result of processing an image for storage */
 export interface AssetInfo {

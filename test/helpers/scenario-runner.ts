@@ -8,8 +8,7 @@
  *   - 文件系统同步模拟
  *   - Trace 收集与验证
  */
-import { MemoryFileSystemAdapter } from "../../src/adapters/memory-fs-adapter.js";
-// import { SyncEngine } from "../../src/sync-engine.js";
+import { MemoryFileSystemAdapter } from "../../src/fs/memory-fs-adapter.js";
 import {
   TraceManager,
   TraceLevel,
@@ -84,8 +83,7 @@ export interface DeviceSimulation {
   deviceId: string;
   /** 设备名称 */
   name: string;
-  /** 同步引擎 */
-  // engine: SyncEngine;
+  /** 文档同步流程占位 */
   /** 文件系统 */
   fs: MemoryFileSystemAdapter;
 }
@@ -96,7 +94,6 @@ export interface DeviceSimulation {
 
 export class ScenarioRunner {
   private fs: MemoryFileSystemAdapter;
-  // private engines: Map<string, SyncEngine> = new Map();
   private traceManager: TraceManager;
   private basePath: string;
   private stepResults: StepResult[] = [];
@@ -135,7 +132,7 @@ export class ScenarioRunner {
   async createDocument(
     docPath: string,
     content: string = "# Untitled\n\n"
-  ): Promise<void> { // Promise<SyncEngine> {
+  ): Promise<void> {
     const fullPath = `${this.basePath}/${docPath}`;
 
     // 创建文档目录结构（在 MemoryFileSystemAdapter 中通过写入文件模拟）
@@ -153,7 +150,7 @@ export class ScenarioRunner {
   /**
    * 加载已有文档
    */
-  async loadDocument(docPath: string): Promise<void> { // Promise<SyncEngine> {
+  async loadDocument(docPath: string): Promise<void> {
     this.traceManager.info("ScenarioRunner", "loadDocument", {
       path: `${this.basePath}/${docPath}`,
     });

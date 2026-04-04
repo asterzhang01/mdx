@@ -12,13 +12,13 @@
  *   UT-008: convertLegacyToModern - modern document throws error
  *   UT-009: getDocumentTypeInfo - legacy
  *   UT-010: getDocumentTypeInfo - modern
- *   UT-011: MdStorageAdapter - loadContent
- *   UT-012: MdStorageAdapter - saveContent
+ *   UT-011: MdDocumentStorage - loadContent
+ *   UT-012: MdDocumentStorage - saveContent
  *   UT-013: isMarkdownXDocument - legacy document (BUG FIX)
  *   UT-014: isMarkdownXDocument - modern document
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { MemoryFileSystemAdapter } from "../src/adapters/memory-fs-adapter.js";
+import { MemoryFileSystemAdapter } from "../src/fs/memory-fs-adapter.js";
 import {
   detectDocumentType,
   getDocumentTypeInfo,
@@ -27,7 +27,7 @@ import {
   isMarkdownXDocument,
   convertLegacyToModern,
 } from "../src/document/document-utils.js";
-import { MdStorageAdapter } from "../src/adapters/md-storage-adapter.js";
+import { MdDocumentStorage } from "../src/storage/md-document-storage.js";
 import type { DocumentType, DocumentTypeInfo } from "../src/document/schema.js";
 
 // ==========================================================================
@@ -238,26 +238,26 @@ describe("getDocumentTypeInfo", () => {
 });
 
 // ==========================================================================
-// UT-011 ~ UT-012: MdStorageAdapter tests
+// UT-011 ~ UT-012: MdDocumentStorage tests
 // ==========================================================================
-describe("MdStorageAdapter", () => {
+describe("MdDocumentStorage", () => {
   let fs: MemoryFileSystemAdapter;
-  let adapter: MdStorageAdapter;
+  let adapter: MdDocumentStorage;
 
   beforeEach(async () => {
     fs = new MemoryFileSystemAdapter();
     await createLegacyDocument("/docs/legacy.mdx", fs);
-    adapter = new MdStorageAdapter("/docs/legacy.mdx", fs);
+    adapter = new MdDocumentStorage("/docs/legacy.mdx", fs);
   });
 
-  // UT-011: MdStorageAdapter - loadContent
+  // UT-011: MdDocumentStorage - loadContent
   it("UT-011: loadContent returns index.md content", async () => {
     const content = await adapter.loadContent();
 
     expect(content).toBe("# Untitled\n\n");
   });
 
-  // UT-012: MdStorageAdapter - saveContent
+  // UT-012: MdDocumentStorage - saveContent
   it("UT-012: saveContent writes to index.md", async () => {
     const newContent = "# Updated\n\nNew content here.";
 
@@ -275,7 +275,7 @@ describe("MdStorageAdapter", () => {
   });
 
   it("loadContent throws for non-existent document", async () => {
-    const badAdapter = new MdStorageAdapter("/does/not/exist", fs);
+    const badAdapter = new MdDocumentStorage("/does/not/exist", fs);
 
     await expect(badAdapter.loadContent()).rejects.toThrow();
   });
@@ -285,7 +285,7 @@ describe("MdStorageAdapter", () => {
     await fs.mkdir("/docs/partial.mdx");
     await fs.mkdir("/docs/partial.mdx/assets");
 
-    const partialAdapter = new MdStorageAdapter("/docs/partial.mdx", fs);
+    const partialAdapter = new MdDocumentStorage("/docs/partial.mdx", fs);
 
     await partialAdapter.saveContent("# New Doc\n\nContent.");
 

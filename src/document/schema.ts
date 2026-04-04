@@ -81,31 +81,6 @@ export type CommentThreadForUI = CommentThread & {
   active: boolean;
 };
 
-/**
- * Chunk file metadata persisted inside .mdx/ directory.
- * Each device writes exactly one chunk file at a time.
- */
-export type ChunkFileMetadata = {
-  deviceId: string;
-  timestamp: number;
-  sequenceNumber: number;
-  /** Serialised Automerge incremental changes */
-  changes: Uint8Array[];
-};
-
-/**
- * Snapshot file metadata persisted inside .mdx/ directory.
- * Contains a full Automerge.save() binary plus a watermark.
- */
-export type SnapshotFileMetadata = {
-  deviceId: string;
-  timestamp: number;
-  /** The seqNo of the last change included in this snapshot */
-  watermark: number;
-  /** Full Automerge binary (result of Automerge.save()) */
-  binary: Uint8Array;
-};
-
 // ---------------------------------------------------------------------------
 // Document Type Types
 // ---------------------------------------------------------------------------

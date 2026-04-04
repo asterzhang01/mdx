@@ -1,6 +1,5 @@
 import { next as Automerge } from '@automerge/automerge';
-import type { MarkdownDoc } from '../../document/schema.js';
-import type { FileSystemAdapter } from '../fs-adapter.js';
+import type { FileSystemAdapter } from '../../fs/fs-adapter.js';
 import {
   deserialiseChunk,
   deserialiseSnapshot,
@@ -19,8 +18,8 @@ export interface DeviceSnapshotRef {
   timestamp: number;
 }
 
-export interface DeviceDocumentState {
-  doc: Automerge.Doc<MarkdownDoc> | null;
+export interface DeviceDocumentState<TDoc extends object> {
+  doc: Automerge.Doc<TDoc> | null;
   watermark: number;
   sequenceNumber: number;
   compactTimestamp: number;
@@ -80,9 +79,21 @@ export async function readDeviceDocumentState(
   metaDir: string,
   files: string[],
   deviceId: string,
-): Promise<DeviceDocumentState> {
+): Promise<DeviceDocumentState<any>>;
+export async function readDeviceDocumentState<TDoc extends object>(
+  fs: FileSystemAdapter,
+  metaDir: string,
+  files: string[],
+  deviceId: string,
+): Promise<DeviceDocumentState<TDoc>>;
+export async function readDeviceDocumentState<TDoc extends object>(
+  fs: FileSystemAdapter,
+  metaDir: string,
+  files: string[],
+  deviceId: string,
+): Promise<DeviceDocumentState<TDoc>> {
   const snapshot = findLatestSnapshot(files, deviceId);
-  let doc: Automerge.Doc<MarkdownDoc> | null = null;
+  let doc: Automerge.Doc<TDoc> | null = null;
   let watermark = -1;
   let sequenceNumber = 0;
   let compactTimestamp = 0;
@@ -90,7 +101,7 @@ export async function readDeviceDocumentState(
   if (snapshot) {
     const data = await fs.readFile(`${metaDir}/${snapshot.fileName}`);
     const meta = deserialiseSnapshot(data);
-    doc = Automerge.load<MarkdownDoc>(meta.binary);
+    doc = Automerge.load<TDoc>(meta.binary);
     watermark = meta.watermark;
     compactTimestamp = meta.timestamp;
   }
@@ -105,11 +116,11 @@ export async function readDeviceDocumentState(
 
     if (changesToApply.length > 0) {
       if (!doc) {
-        doc = Automerge.init<MarkdownDoc>();
+        doc = Automerge.init<TDoc>();
       }
 
       for (const change of changesToApply) {
-        const [applied]: [Automerge.Doc<MarkdownDoc>] = Automerge.applyChanges(doc, [change]);
+        const [applied]: [Automerge.Doc<TDoc>] = Automerge.applyChanges(doc, [change]);
         doc = applied;
       }
     }

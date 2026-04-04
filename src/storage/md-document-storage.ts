@@ -1,21 +1,21 @@
 /**
- * MdStorageAdapter
+ * MdDocumentStorage
  *
  * Lightweight adapter for non-sync documents (no CRDT / no sync capability).
  * Provides direct read/write access to index.md without CRDT complexity.
  */
-import type { FileSystemAdapter } from "./fs-adapter.js";
+import type { FileSystemAdapter } from "../fs/fs-adapter.js";
 import { getGlobalTraceManager, TraceLevel, TraceType } from "../utils/trace.js";
 
 /**
- * Storage adapter for legacy documents.
+ * Storage for plain Markdown documents.
  *
- * Legacy documents have:
+ * These documents have:
  * - index.md (direct read/write)
  * - assets/ directory
  * - No .mdx/ directory (no sync capability)
  */
-export class MdStorageAdapter {
+export class MdDocumentStorage {
   private readonly basePath: string;
   private readonly fs: FileSystemAdapter;
   private readonly trace = getGlobalTraceManager();
@@ -24,7 +24,7 @@ export class MdStorageAdapter {
     this.basePath = basePath;
     this.fs = fsAdapter;
 
-    this.trace.log(TraceLevel.DEBUG, TraceType.LIFECYCLE, "MdStorageAdapter", "constructor", {
+    this.trace.log(TraceLevel.DEBUG, TraceType.LIFECYCLE, "MdDocumentStorage", "constructor", {
       basePath
     });
   }
@@ -40,14 +40,14 @@ export class MdStorageAdapter {
     try {
       const content = await this.fs.readTextFile(indexPath);
 
-      this.trace.log(TraceLevel.DEBUG, TraceType.FILE, "MdStorageAdapter", "loadContent", {
+      this.trace.log(TraceLevel.DEBUG, TraceType.FILE, "MdDocumentStorage", "loadContent", {
         path: indexPath,
         contentLength: content.length
       });
 
       return content;
     } catch (error) {
-      this.trace.log(TraceLevel.ERROR, TraceType.FILE, "MdStorageAdapter", "loadContent:error", {
+      this.trace.log(TraceLevel.ERROR, TraceType.FILE, "MdDocumentStorage", "loadContent:error", {
         path: indexPath,
         error: error instanceof Error ? error.message : String(error)
       });
@@ -71,12 +71,12 @@ export class MdStorageAdapter {
       await this.fs.writeTextFile(tmpPath, content);
       await this.fs.rename(tmpPath, indexPath);
 
-      this.trace.log(TraceLevel.DEBUG, TraceType.FILE, "MdStorageAdapter", "saveContent", {
+      this.trace.log(TraceLevel.DEBUG, TraceType.FILE, "MdDocumentStorage", "saveContent", {
         path: indexPath,
         contentLength: content.length
       });
     } catch (error) {
-      this.trace.log(TraceLevel.ERROR, TraceType.FILE, "MdStorageAdapter", "saveContent:error", {
+      this.trace.log(TraceLevel.ERROR, TraceType.FILE, "MdDocumentStorage", "saveContent:error", {
         path: indexPath,
         error: error instanceof Error ? error.message : String(error)
       });
@@ -98,5 +98,3 @@ export class MdStorageAdapter {
     await this.fs.mkdir(this.getAssetsDir());
   }
 }
-
-export { MdStorageAdapter as LegacyStorageAdapter };

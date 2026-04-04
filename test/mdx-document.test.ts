@@ -8,7 +8,7 @@
  *   • createMarkdownXDocument uses custom initial content
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { MemoryFileSystemAdapter } from "../src/adapters/memory-fs-adapter.js";
+import { MemoryFileSystemAdapter } from "../src/fs/memory-fs-adapter.js";
 import {
   isMarkdownXDocument,
   createMarkdownXDocument,

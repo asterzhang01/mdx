@@ -5,19 +5,23 @@
  * This is the main entry point for application code to work with .mdx documents.
  *
  * Responsibilities:
- *   - Document lifecycle orchestration (via MdxStorageAdapter)
+ *   - Document lifecycle orchestration (via MdxDocumentStorage)
  *   - Content changes via CRDT splice
  *   - Multi-device sync
  *   - External editor integration
  *
  * Note: FileSyncEngine does NOT directly hold FileSystemAdapter.
- * All file system access is delegated to MdxStorageAdapter.
+ * All file system access is delegated to MdxDocumentStorage.
  */
 import { next as Automerge } from "@automerge/automerge";
-import type { MarkdownDoc } from "../document/schema.js";
-import { MdxStorageAdapter } from "../adapters/mdx-storage-adapter.js";
+import type { DocumentType, DocumentTypeInfo, MarkdownDoc } from "../document/schema.js";
+import { MdxDocumentStorage } from "../storage/mdx-document-storage.js";
+import { MdDocumentStorage } from "../storage/md-document-storage.js";
+import type { FileSystemAdapter } from "../fs/fs-adapter.js";
 import { getGlobalTraceManager, TraceLevel, TraceType } from "../utils/trace.js";
 import { createDocument, getAllChanges, extractChanges, applyContentChange } from "../document/document-operations.js";
+import { detectDocumentType, convertLegacyToModern } from "../document/document-utils.js";
+import { findReferencedAssets, findOrphanedAssets } from "../utils/asset-utils.js";
 
 export interface LoadResult {
   merged: boolean;
@@ -32,21 +36,31 @@ export interface ChangeResult {
 export class FileSyncEngine {
   private readonly basePath: string;
   private readonly deviceId: string;
-  private readonly storage: MdxStorageAdapter;
+  private readonly fs: FileSystemAdapter;
+  private readonly exportIndexMarkdown: boolean;
+  private storage: MdxDocumentStorage | null = null;
+  private legacyStorage: MdDocumentStorage | null = null;
   private document: Automerge.Doc<MarkdownDoc> | null = null;
+  private documentType: DocumentType | null = null;
 
   /** Trace manager for logging */
   private readonly trace = getGlobalTraceManager();
 
-  constructor(basePath: string, fs: any, deviceId: string) {
+  constructor(
+    basePath: string,
+    fs: FileSystemAdapter,
+    deviceId: string,
+    options: { exportIndexMarkdown?: boolean } = {},
+  ) {
     this.basePath = basePath;
     this.deviceId = deviceId;
-    // MdxStorageAdapter manages the FileSystemAdapter internally
-    this.storage = new MdxStorageAdapter(basePath, fs, deviceId);
+    this.fs = fs;
+    this.exportIndexMarkdown = options.exportIndexMarkdown ?? true;
 
     this.trace.log(TraceLevel.DEBUG, TraceType.LIFECYCLE, "FileSyncEngine", "constructor", {
       basePath,
-      deviceId
+      deviceId,
+      exportIndexMarkdown: this.exportIndexMarkdown,
     });
   }
 
@@ -60,22 +74,35 @@ export class FileSyncEngine {
   async init(initialContent: string = "# Untitled\n\n"): Promise<void> {
     const ctx = this.trace.startTrace("FileSyncEngine", "init", TraceType.SYNC);
 
-    await this.storage.ensureDirectories();
+    const detectedType = await detectDocumentType(this.basePath, this.fs);
+    this.documentType = detectedType ?? 'modern';
+
+    if (this.documentType === 'legacy') {
+      this.legacyStorage = new MdDocumentStorage(this.basePath, this.fs);
+      await this.legacyStorage.ensureAssetsDir();
+      await this.legacyStorage.saveContent(initialContent);
+      this.document = createDocument(initialContent);
+      ctx.success({ deviceId: this.deviceId, contentLength: initialContent.length, documentType: this.documentType });
+      return;
+    }
+
+    const storage = this.getOrCreateModernStorage();
+    await storage.ensureDirectories();
 
     this.document = createDocument(initialContent);
 
     const changes = getAllChanges(this.document);
     for (const change of changes) {
-      this.storage.appendChange(change);
+      storage.appendChange(change);
     }
-    await this.storage.flushChanges();
+    await storage.flushChanges();
 
     // Export index.md for compatibility
-    if (this.document) {
-      await this.storage.exportIndexMd(this.document);
+    if (this.document && this.exportIndexMarkdown) {
+      await storage.exportIndexMd(this.document);
     }
 
-    ctx.success({ deviceId: this.deviceId, contentLength: initialContent.length });
+    ctx.success({ deviceId: this.deviceId, contentLength: initialContent.length, documentType: this.documentType });
   }
 
   /**
@@ -84,10 +111,26 @@ export class FileSyncEngine {
   async load(): Promise<LoadResult> {
     const ctx = this.trace.startTrace("FileSyncEngine", "load", TraceType.SYNC);
 
-    await this.storage.ensureDirectories();
+    const detectedType = await detectDocumentType(this.basePath, this.fs);
+    if (!detectedType) {
+      throw new Error(`Invalid MarkdownX document: ${this.basePath}`);
+    }
+
+    this.documentType = detectedType;
+
+    if (this.documentType === 'legacy') {
+      this.legacyStorage = new MdDocumentStorage(this.basePath, this.fs);
+      const content = await this.legacyStorage.loadContent();
+      this.document = createDocument(content);
+      ctx.success({ deviceId: this.deviceId, loadedFromCRDT: false, merged: false, documentType: this.documentType });
+      return { merged: false, doc: this.document };
+    }
+
+    const storage = this.getOrCreateModernStorage();
+    await storage.ensureDirectories();
 
     // Try loading from CRDT storage
-    let doc = await this.storage.loadLocal();
+    let doc = await storage.loadLocal();
     const loadedFromCRDT = !!doc;
 
     if (!doc) {
@@ -95,7 +138,7 @@ export class FileSyncEngine {
       let initialContent = "# Untitled\n\n";
       
       // Use storage to read index.md
-      const indexContent = await this.storage.readIndexMd();
+      const indexContent = await storage.readIndexMd();
       if (indexContent !== null) {
         initialContent = indexContent;
       }
@@ -105,16 +148,16 @@ export class FileSyncEngine {
       // Persist initial state
       const changes = getAllChanges(doc);
       for (const change of changes) {
-        this.storage.appendChange(change);
+        storage.appendChange(change);
       }
-      await this.storage.flushChanges();
+      await storage.flushChanges();
     }
 
     // Sync with other devices
     const { doc: mergedDoc, merged } = await this.syncAll(doc);
     this.document = mergedDoc;
 
-    ctx.success({ deviceId: this.deviceId, loadedFromCRDT, merged });
+    ctx.success({ deviceId: this.deviceId, loadedFromCRDT, merged, documentType: this.documentType });
     return { merged, doc: mergedDoc };
   }
 
@@ -126,13 +169,25 @@ export class FileSyncEngine {
       throw new Error("Document not loaded. Call init() or load() first.");
     }
 
+    if (this.documentType === 'legacy') {
+      const changed = newContent !== this.getContent();
+      if (changed) {
+        this.document = createDocument(newContent);
+      }
+      return {
+        changed,
+        doc: this.document,
+      };
+    }
+
     const result = applyContentChange(this.document, newContent);
 
     if (result.changed) {
       this.document = result.doc;
       const changes = extractChanges(this.document);
+      const storage = this.getOrCreateModernStorage();
       for (const change of changes) {
-        this.storage.appendChange(change);
+        storage.appendChange(change);
       }
     }
 
@@ -148,12 +203,21 @@ export class FileSyncEngine {
   async forceSave(): Promise<void> {
     const ctx = this.trace.startTrace("FileSyncEngine", "forceSave", TraceType.FILE);
 
-    await this.storage.flushChanges();
-    if (this.document) {
-      await this.storage.exportIndexMd(this.document);
+    if (this.documentType === 'legacy') {
+      if (this.legacyStorage && this.document) {
+        await this.legacyStorage.saveContent(this.getContent());
+      }
+      ctx.success({ documentType: this.documentType });
+      return;
     }
 
-    ctx.success({});
+    const storage = this.getOrCreateModernStorage();
+    await storage.flushChanges();
+    if (this.document && this.exportIndexMarkdown) {
+      await storage.exportIndexMd(this.document);
+    }
+
+    ctx.success({ documentType: this.documentType });
   }
 
   /**
@@ -173,6 +237,73 @@ export class FileSyncEngine {
     return this.document;
   }
 
+  getDocumentType(): DocumentType | null {
+    return this.documentType;
+  }
+
+  getDocumentTypeInfo(): DocumentTypeInfo | null {
+    if (!this.documentType) return null;
+    return {
+      type: this.documentType,
+      canConvertToModern: this.documentType === 'legacy',
+      hasSyncCapability: this.documentType === 'modern',
+    };
+  }
+
+  getAssetsDir(): string {
+    if (this.documentType === 'legacy') {
+      if (!this.legacyStorage) {
+        this.legacyStorage = new MdDocumentStorage(this.basePath, this.fs);
+      }
+      return this.legacyStorage.getAssetsDir();
+    }
+
+    return `${this.basePath}/assets`;
+  }
+
+  async convertToModern(): Promise<void> {
+    if (this.documentType !== 'legacy') {
+      return;
+    }
+
+    await convertLegacyToModern(this.basePath, this.fs, this.deviceId);
+    this.documentType = 'modern';
+    this.legacyStorage = null;
+    this.storage = null;
+    await this.load();
+  }
+
+  async getOrphanedAssets(): Promise<string[]> {
+    const assetsDir = this.getAssetsDir();
+    const hasAssetsDir = await this.fs.exists(assetsDir);
+    if (!hasAssetsDir) {
+      return [];
+    }
+
+    const referenced = findReferencedAssets(this.getContent());
+    const existingFiles = await this.fs.readdir(assetsDir);
+    return findOrphanedAssets(referenced, existingFiles);
+  }
+
+  async cleanOrphanedAssets(): Promise<number> {
+    const orphaned = await this.getOrphanedAssets();
+    let deletedCount = 0;
+
+    for (const filename of orphaned) {
+      try {
+        await this.fs.unlink(`${this.getAssetsDir()}/${filename}`);
+        deletedCount++;
+      } catch (error) {
+        this.trace.log(TraceLevel.WARN, TraceType.FILE, "FileSyncEngine", "cleanOrphanedAssets:unlinkFailed", {
+          filename,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return deletedCount;
+  }
+
   // ===========================================================================
   // Low-level Sync APIs (for advanced usage)
   // ===========================================================================
@@ -187,8 +318,9 @@ export class FileSyncEngine {
     localDoc: Automerge.Doc<MarkdownDoc>
   ): Promise<{ merged: boolean; doc: Automerge.Doc<MarkdownDoc> }> {
     const ctx = this.trace.startTrace("FileSyncEngine", "syncAll", TraceType.SYNC);
+    const storage = this.getOrCreateModernStorage();
 
-    const deviceIds = await this.storage.listDeviceIds();
+    const deviceIds = await storage.listDeviceIds();
     const remoteDeviceIds = deviceIds.filter(id => id !== this.deviceId);
 
     this.trace.log(TraceLevel.DEBUG, TraceType.SYNC, "FileSyncEngine", "syncAll:start", {
@@ -201,7 +333,7 @@ export class FileSyncEngine {
     let currentDoc = localDoc;
 
     for (const remoteDeviceId of remoteDeviceIds) {
-      const remoteDoc = await this.storage.loadRemote(remoteDeviceId);
+      const remoteDoc = await storage.loadRemote(remoteDeviceId);
       if (!remoteDoc) {
         this.trace.log(TraceLevel.DEBUG, TraceType.SYNC, "FileSyncEngine", "syncAll:noRemoteDoc", {
           remoteDeviceId
@@ -229,8 +361,8 @@ export class FileSyncEngine {
     }
 
     // If we merged remote changes, update index.md
-    if (merged) {
-      await this.storage.exportIndexMd(currentDoc);
+    if (merged && this.exportIndexMarkdown) {
+      await storage.exportIndexMd(currentDoc);
       this.trace.log(TraceLevel.DEBUG, TraceType.SYNC, "FileSyncEngine", "syncAll:exportedIndex", {});
     }
 
@@ -242,17 +374,19 @@ export class FileSyncEngine {
    * Write local changes to the current device's chunk file.
    */
   async flushLocalChanges(changes: Uint8Array[]): Promise<void> {
+    const storage = this.getOrCreateModernStorage();
     for (const change of changes) {
-      this.storage.appendChange(change);
+      storage.appendChange(change);
     }
-    await this.storage.flushChanges();
+    await storage.flushChanges();
   }
 
   /**
    * Trigger compaction: merge current device's chunk into a snapshot.
    */
   async compact(localDoc: Automerge.Doc<MarkdownDoc>): Promise<void> {
-    await this.storage.compact(localDoc);
+    const storage = this.getOrCreateModernStorage();
+    await storage.compact(localDoc);
   }
 
   /**
@@ -268,8 +402,26 @@ export class FileSyncEngine {
   ): Promise<Automerge.Doc<MarkdownDoc> | null> {
     const ctx = this.trace.startTrace("FileSyncEngine", "handleExternalMarkdownEdit", TraceType.SYNC);
 
+    if (this.documentType === 'legacy') {
+      if (!this.legacyStorage) {
+        this.legacyStorage = new MdDocumentStorage(this.basePath, this.fs);
+      }
+      const externalContent = await this.legacyStorage.loadContent();
+      const currentContent = localDoc.content ?? "";
+      if (externalContent === currentContent) {
+        ctx.success({ result: 'noChange' });
+        return null;
+      }
+      const updatedDoc = createDocument(externalContent);
+      this.document = updatedDoc;
+      ctx.success({ result: 'updated', newLength: externalContent.length });
+      return updatedDoc;
+    }
+
+    const storage = this.getOrCreateModernStorage();
+
     // Use storage to read index.md instead of direct fs access
-    const externalContent = await this.storage.readIndexMd();
+    const externalContent = await storage.readIndexMd();
     
     if (externalContent === null) {
       this.trace.log(TraceLevel.DEBUG, TraceType.FILE, "FileSyncEngine", "handleExternalMarkdownEdit:noIndex", {});
@@ -307,12 +459,20 @@ export class FileSyncEngine {
     // Persist the change
     const changes = Automerge.getLastLocalChange(updatedDoc);
     if (changes) {
-      this.storage.appendChange(changes);
-      await this.storage.flushChanges();
+      storage.appendChange(changes);
+      await storage.flushChanges();
     }
 
+    this.document = updatedDoc;
     ctx.success({ result: 'updated', newLength: externalContent.length });
     return updatedDoc;
+  }
+
+  private getOrCreateModernStorage(): MdxDocumentStorage {
+    if (!this.storage) {
+      this.storage = new MdxDocumentStorage(this.basePath, this.fs, this.deviceId);
+    }
+    return this.storage;
   }
 }
 
