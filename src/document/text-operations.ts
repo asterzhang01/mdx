@@ -1,6 +1,6 @@
 import { next as Automerge } from '@automerge/automerge';
 import type { MarkdownDoc } from './schema.js';
-import type { TextSpliceOperation } from './operations.js';
+import type { TextSpliceOperation } from './operation-types.js';
 
 export function splice(
   doc: Automerge.Doc<MarkdownDoc>,

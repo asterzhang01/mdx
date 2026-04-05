@@ -4,7 +4,7 @@ import type {
   AddCommentThreadOperation,
   ReplyToCommentOperation,
   ResolveCommentOperation,
-} from './operations.js';
+} from './operation-types.js';
 
 export function addCommentThread(
   doc: Automerge.Doc<MarkdownDoc>,

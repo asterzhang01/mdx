@@ -15,6 +15,7 @@
  */
 import { next as Automerge } from "@automerge/automerge";
 import type {
+  CustomOperationSource,
   DocumentMetadata,
   DocumentType,
   DocumentTypeInfo,
@@ -22,6 +23,15 @@ import type {
   MarkdownDoc,
   UserProfile,
 } from "../document/schema.js";
+import type {
+  CustomDocumentOperation,
+  CustomOperationDefinition,
+  LegacyCompatibleCustomOperationDefinition,
+} from "../document/operation-types.js";
+import {
+  createCustomOperationType,
+  resolveCustomOperationTypeSegment,
+} from "../document/operation-types.js";
 import { MdxDocumentStorage } from "../storage/mdx-document-storage.js";
 import { MdDocumentStorage } from "../storage/md-document-storage.js";
 import type { FileSystemAdapter } from "../fs/fs-adapter.js";
@@ -35,8 +45,8 @@ import {
   getAllChanges,
   touchDocumentMetadata,
   updateDocumentMetadata as setDocumentMetadata,
-} from "../document/document-operations.js";
-import { detectDocumentType, convertLegacyToModern } from "../document/document-utils.js";
+} from "../document/document-mutations.js";
+import { detectDocumentType, convertLegacyToModern } from "../document/document-directories.js";
 import { findReferencedAssets, findOrphanedAssets } from "../utils/asset-utils.js";
 
 export interface LoadResult {
@@ -49,6 +59,17 @@ export interface ChangeResult {
   doc: Automerge.Doc<MarkdownDoc>;
 }
 
+export type CustomOperationHandler<TOperation extends CustomDocumentOperation = CustomDocumentOperation> = (
+  doc: Automerge.Doc<MarkdownDoc>,
+  operation: TOperation,
+) => Automerge.Doc<MarkdownDoc>;
+
+export type RegisteredCustomOperation<
+  TOperation extends CustomDocumentOperation = CustomDocumentOperation,
+> = CustomOperationDefinition<TOperation, Automerge.Doc<MarkdownDoc>> & {
+  canonicalType: string;
+};
+
 export class FileSyncEngine {
   private readonly basePath: string;
   private readonly deviceId: string;
@@ -58,6 +79,7 @@ export class FileSyncEngine {
   private legacyStorage: MdDocumentStorage | null = null;
   private document: Automerge.Doc<MarkdownDoc> | null = null;
   private documentType: DocumentType | null = null;
+  private readonly customOperationRegistry = new Map<string, RegisteredCustomOperation>();
 
   /** Trace manager for logging */
   private readonly trace = getGlobalTraceManager();
@@ -213,6 +235,77 @@ export class FileSyncEngine {
     };
   }
 
+  registerCustomOperationHandler<TOperation extends CustomDocumentOperation = CustomDocumentOperation>(
+    organization: string,
+    typeSegment: string,
+    handler: CustomOperationHandler<TOperation>,
+  ): void {
+    this.registerCustomOperation({
+      organization,
+      typeSegment,
+      apply: handler,
+    });
+  }
+
+  registerCustomOperation<TOperation extends CustomDocumentOperation = CustomDocumentOperation>(
+    definition: LegacyCompatibleCustomOperationDefinition<TOperation, Automerge.Doc<MarkdownDoc>>,
+  ): void {
+    const typeSegment = resolveCustomOperationTypeSegment(definition);
+    const canonicalType = createCustomOperationType(definition.organization, typeSegment);
+    if (this.customOperationRegistry.has(canonicalType)) {
+      throw new Error(`Custom operation already registered: ${canonicalType}`);
+    }
+
+    this.customOperationRegistry.set(canonicalType, {
+      ...definition,
+      organization: definition.organization.trim().toLowerCase(),
+      typeSegment,
+      canonicalType,
+    } as RegisteredCustomOperation);
+  }
+
+  hasCustomOperationHandler(type: string): boolean {
+    return this.customOperationRegistry.has(type);
+  }
+
+  getCustomOperationDefinition(type: string): RegisteredCustomOperation | null {
+    return this.customOperationRegistry.get(type) ?? null;
+  }
+
+  listCustomOperationDefinitions(): RegisteredCustomOperation[] {
+    return [...this.customOperationRegistry.values()];
+  }
+
+  createCustomOperation<TOperation extends Record<string, unknown> = Record<string, unknown>>(
+    organization: string,
+    typeSegment: string,
+    payload: TOperation,
+  ): CustomDocumentOperation {
+    return {
+      ...payload,
+      type: createCustomOperationType(organization, typeSegment),
+    };
+  }
+
+  applyCustomOperation<TOperation extends CustomDocumentOperation>(operation: TOperation): ChangeResult {
+    this.requireLoadedModernDocument("Custom operations are only supported for modern documents.");
+
+    const definition = this.customOperationRegistry.get(operation.type);
+    if (!definition) {
+      throw new Error(`No custom operation handler registered for type: ${operation.type}`);
+    }
+
+    definition.validate?.(operation);
+    const currentDocument = this.document!;
+    const nextDoc = definition.apply(currentDocument, operation);
+    const changed = this.persistDocumentChanges(nextDoc);
+
+    return {
+      changed,
+      doc: this.document!,
+    };
+  }
+
   /**
    * Force save pending changes to disk and export index.md.
    */
@@ -295,14 +388,7 @@ export class FileSyncEngine {
     }
 
     const result = ensureDocumentCapabilities(this.document, user, options);
-    if (result.changed) {
-      this.document = result.doc;
-      const changes = extractChanges(result.doc);
-      const storage = this.getOrCreateModernStorage();
-      for (const change of changes) {
-        storage.appendChange(change);
-      }
-    }
+    this.persistDocumentChanges(result.doc);
 
     return result.changed;
   }
@@ -312,27 +398,25 @@ export class FileSyncEngine {
       return false;
     }
 
-    this.document = setDocumentMetadata(this.document, metadata);
-    const changes = extractChanges(this.document);
-    const storage = this.getOrCreateModernStorage();
-    for (const change of changes) {
-      storage.appendChange(change);
-    }
-    return true;
+    return this.persistDocumentChanges(setDocumentMetadata(this.document, metadata));
   }
 
-  appendHistoryEntry(user: UserProfile, kind: "document-created" | "content-saved" | "metadata-updated" | "external-change", summary: string): boolean {
-    if (!this.document || this.documentType === "legacy") {
-      return false;
-    }
+  appendHistoryEntry(
+    user: UserProfile,
+    kind: "document-created" | "content-saved" | "metadata-updated" | "external-change",
+    summary: string,
+  ): boolean {
+    return this.appendHistoryEntryInternal(user, kind, summary);
+  }
 
-    this.document = appendEditHistory(this.document, user, kind, summary);
-    const changes = extractChanges(this.document);
-    const storage = this.getOrCreateModernStorage();
-    for (const change of changes) {
-      storage.appendChange(change);
-    }
-    return true;
+  appendCustomOperationHistoryEntry(
+    user: UserProfile,
+    source: CustomOperationSource,
+    summary: string,
+  ): boolean {
+    return this.appendHistoryEntryInternal(user, "custom-operation", summary, {
+      customOperationSource: source,
+    });
   }
 
   touchMetadataForSave(user: UserProfile): boolean {
@@ -340,13 +424,9 @@ export class FileSyncEngine {
       return false;
     }
 
-    this.document = setDocumentMetadata(this.document, touchDocumentMetadata(this.document.metadata, user));
-    const changes = extractChanges(this.document);
-    const storage = this.getOrCreateModernStorage();
-    for (const change of changes) {
-      storage.appendChange(change);
-    }
-    return true;
+    return this.persistDocumentChanges(
+      setDocumentMetadata(this.document, touchDocumentMetadata(this.document.metadata, user)),
+    );
   }
 
   async convertToModern(): Promise<void> {
@@ -390,6 +470,47 @@ export class FileSyncEngine {
     }
 
     return deletedCount;
+  }
+
+  private requireLoadedModernDocument(legacyMessage: string): void {
+    if (!this.document) {
+      throw new Error("Document not loaded. Call init() or load() first.");
+    }
+
+    if (this.documentType === "legacy") {
+      throw new Error(legacyMessage);
+    }
+  }
+
+  private persistDocumentChanges(doc: Automerge.Doc<MarkdownDoc>): boolean {
+    if (doc === this.document) {
+      return false;
+    }
+
+    this.document = doc;
+    const changes = extractChanges(doc);
+    const storage = this.getOrCreateModernStorage();
+    for (const change of changes) {
+      storage.appendChange(change);
+    }
+    return true;
+  }
+
+  private appendHistoryEntryInternal(
+    user: UserProfile,
+    kind: EditHistoryEntry["kind"],
+    summary: string,
+    options: {
+      customOperationSource?: CustomOperationSource;
+    } = {},
+  ): boolean {
+    if (!this.document || this.documentType === "legacy") {
+      return false;
+    }
+
+    return this.persistDocumentChanges(
+      appendEditHistory(this.document, user, kind, summary, undefined, options),
+    );
   }
 
   // ===========================================================================

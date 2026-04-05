@@ -1,5 +1,6 @@
 import { next as Automerge } from "@automerge/automerge";
 import type {
+  CustomOperationSource,
   DocumentMetadata,
   EditHistoryEntry,
   EditHistoryKind,
@@ -89,8 +90,11 @@ export function createEditHistoryEntry(
   kind: EditHistoryKind,
   summary: string,
   now: string = new Date().toISOString(),
+  options: {
+    customOperationSource?: CustomOperationSource;
+  } = {},
 ): EditHistoryEntry {
-  return {
+  const entry: EditHistoryEntry = {
     id: createHistoryId(),
     timestamp: now,
     actorDeviceId: user.deviceId,
@@ -99,6 +103,12 @@ export function createEditHistoryEntry(
     kind,
     summary,
   };
+
+  if (options.customOperationSource) {
+    entry.customOperationSource = options.customOperationSource;
+  }
+
+  return entry;
 }
 
 export function ensureDocumentCapabilities(
@@ -142,12 +152,15 @@ export function appendEditHistory(
   kind: EditHistoryKind,
   summary: string,
   now: string = new Date().toISOString(),
+  options: {
+    customOperationSource?: CustomOperationSource;
+  } = {},
 ): Automerge.Doc<MarkdownDoc> {
   return Automerge.change(doc, (draft) => {
     if (!draft.editHistory) {
       draft.editHistory = [];
     }
-    draft.editHistory.push(createEditHistoryEntry(user, kind, summary, now));
+    draft.editHistory.push(createEditHistoryEntry(user, kind, summary, now, options));
   });
 }
 

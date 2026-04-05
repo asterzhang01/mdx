@@ -1,9 +1,3 @@
-/**
- * DocumentOperations
- *
- * Public facade for typed document mutations. The implementation is split by
- * capability so the CRDT logic stays easier to navigate and evolve.
- */
 export {
   splice,
   extractTitle,
@@ -12,7 +6,7 @@ export {
   extractChanges,
   applyContentChange,
   initDocument,
-} from './text-operations.js';
+} from "./text-operations.js";
 export {
   appendEditHistory,
   createDocumentMetadata,
@@ -20,17 +14,17 @@ export {
   ensureDocumentCapabilities,
   touchDocumentMetadata,
   updateDocumentMetadata,
-} from './metadata-operations.js';
-export { uploadAsset, deleteAsset, initAssetsDoc } from './asset-operations.js';
+} from "./metadata-operations.js";
+export { uploadAsset, deleteAsset, initAssetsDoc } from "./asset-operations.js";
 export {
   addCommentThread,
   replyToCommentThread,
   resolveCommentThread,
   resolveCommentThreadPositions,
-} from './comment-operations.js';
+} from "./comment-operations.js";
 export {
   folderRename,
   folderAddDoc,
   folderRemoveDoc,
   initFolderDoc,
-} from './folder-operations.js';
+} from "./folder-operations.js";

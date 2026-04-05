@@ -26,7 +26,7 @@ import {
   createModernDocument,
   isMarkdownXDocument,
   convertLegacyToModern,
-} from "../src/document/document-utils.js";
+} from "../src/document/document-directories.js";
 import { MdDocumentStorage } from "../src/storage/md-document-storage.js";
 import type { DocumentType, DocumentTypeInfo } from "../src/document/schema.js";
 

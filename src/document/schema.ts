@@ -1,46 +1,22 @@
-/**
- * Core data model types for MarkdownX
- * Fully compatible with TEE (tiny-essay-editor) schema
- */
 import type { AutomergeUrl } from "@automerge/automerge-repo";
 
-/** A single comment within a thread */
-export type Comment = {
-  id: string;
-  content: string;
-  /** Link to commenter's contact document */
-  contactUrl?: AutomergeUrl;
-  timestamp: number;
-};
-
-/** A comment thread anchored to a text range via Automerge Cursors */
-export type CommentThread = {
-  id: string;
-  comments: Comment[];
-  resolved: boolean;
-  /** Automerge Cursor — text edits cause it to follow automatically */
-  fromCursor: string;
-  /** Automerge Cursor — text edits cause it to follow automatically */
-  toCursor: string;
-};
-
-/** AI metadata stored alongside the document (Phase 1: definition only) */
-export type AIMetadata = {
-  embeddingModel?: string;
-  /** ISO 8601 timestamp of last indexing */
-  lastIndexedAt?: string;
-  tags?: string[];
-  summary?: string;
-  /** Relative path to vector index within .mdx directory */
-  vectorIndexPath?: string;
-};
-
 export type MetadataPrimitive = string | number | boolean | null;
+
 export interface MetadataMap {
   [key: string]: MetadataValue;
 }
+
 export interface MetadataList extends Array<MetadataValue> {}
+
 export type MetadataValue = MetadataPrimitive | MetadataMap | MetadataList;
+
+export type AIMetadata = {
+  embeddingModel?: string;
+  lastIndexedAt?: string;
+  tags?: string[];
+  summary?: string;
+  vectorIndexPath?: string;
+};
 
 export type UserProfile = {
   deviceId: string;
@@ -63,7 +39,14 @@ export type EditHistoryKind =
   | "document-created"
   | "content-saved"
   | "metadata-updated"
-  | "external-change";
+  | "external-change"
+  | "custom-operation";
+
+export type CustomOperationSource = {
+  organization: string;
+  typeSegment: string;
+  canonicalType: string;
+};
 
 export type EditHistoryEntry = {
   id: string;
@@ -73,99 +56,71 @@ export type EditHistoryEntry = {
   actorDeviceName: string;
   kind: EditHistoryKind;
   summary: string;
+  customOperationSource?: CustomOperationSource;
 };
 
-/** The primary Markdown document — character-level CRDT */
-export type MarkdownDoc = {
-  /** Markdown body, character-level CRDT via Automerge.splice */
+export type Comment = {
+  id: string;
   content: string;
-  /** Comment threads keyed by thread ID */
+  contactUrl?: AutomergeUrl;
+  timestamp: number;
+};
+
+export type CommentThread = {
+  id: string;
+  comments: Comment[];
+  resolved: boolean;
+  fromCursor: string;
+  toCursor: string;
+};
+
+export type MarkdownDoc = {
+  content: string;
   commentThreads: Record<string, CommentThread>;
-  /** URL of the associated AssetsDoc (independent Automerge document) */
   assetsDocUrl: AutomergeUrl;
-  /** AI metadata (Phase 1: structure only, no logic) */
   aiMetadata?: AIMetadata;
-  /** Structured document metadata stored with the document */
   metadata?: DocumentMetadata;
-  /** Save-level history entries for UI display */
   editHistory?: EditHistoryEntry[];
 };
 
-/** A single file entry inside an AssetsDoc */
 export type FileEntry = {
   contentType: string;
   contents: string | Uint8Array;
 };
 
-/** Independent Automerge document holding binary assets */
 export type AssetsDoc = {
   files: Record<string, FileEntry>;
 };
 
-/** A link to a document inside a folder */
 export type DocLink = {
   name: string;
   type: string;
   url: AutomergeUrl;
 };
 
-/** A folder document containing ordered document links */
 export type FolderDoc = {
   title: string;
   docs: DocLink[];
 };
 
-/**
- * CommentThread enriched with resolved integer positions for UI rendering.
- * Produced by resolveCommentThreadPositions().
- */
 export type CommentThreadForUI = CommentThread & {
   from: number;
   to: number;
   active: boolean;
 };
 
-// ---------------------------------------------------------------------------
-// Document Type Types
-// ---------------------------------------------------------------------------
+export type DocumentType = "legacy" | "modern";
 
-/**
- * Document type - determines sync capability.
- * - legacy: Simple editing without multi-device sync (no .mdx/ directory)
- * - modern: Full features with multi-device sync support (.mdx/ with .initialized)
- */
-export type DocumentType = 'legacy' | 'modern';
-
-/**
- * Document type information.
- * Provides metadata about a document's type and capabilities.
- */
 export type DocumentTypeInfo = {
-  /** The document type */
   type: DocumentType;
-  /** Whether this document can be converted to modern type */
   canConvertToModern: boolean;
-  /** Whether this document supports multi-device sync */
   hasSyncCapability: boolean;
 };
 
-// ---------------------------------------------------------------------------
-// Vault Configuration Types
-// ---------------------------------------------------------------------------
-
-/**
- * Vault settings - user preferences for a vault.
- * Stored in .markdownx/vault-config/ with CRDT sync support.
- */
 export type VaultSettings = {
-  /** Whether to show line numbers in the editor */
   showLineNumbers: boolean;
 };
 
-/**
- * Vault configuration document - CRDT document type.
- * Supports multi-device sync via Automerge.
- */
 export type VaultConfigDoc = {
   settings: VaultSettings;
 };

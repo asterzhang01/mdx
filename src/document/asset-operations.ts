@@ -1,6 +1,6 @@
 import { next as Automerge } from '@automerge/automerge';
 import type { AssetsDoc, MarkdownDoc } from './schema.js';
-import type { AssetDeleteOperation, AssetUploadOperation } from './operations.js';
+import type { AssetDeleteOperation, AssetUploadOperation } from './operation-types.js';
 
 export function uploadAsset(
   assetsDoc: Automerge.Doc<AssetsDoc>,

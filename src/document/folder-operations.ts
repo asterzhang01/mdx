@@ -4,7 +4,7 @@ import type {
   FolderAddDocOperation,
   FolderRemoveDocOperation,
   FolderRenameOperation,
-} from './operations.js';
+} from './operation-types.js';
 
 export function folderRename(
   doc: Automerge.Doc<FolderDoc>,

@@ -27,7 +27,7 @@ import {
   initFolderDoc,
   extractTitle,
   resolveCommentThreadPositions,
-} from "../src/document/document-operations.js";
+} from "../src/document/document-mutations.js";
 import type { MarkdownDoc, AssetsDoc, FolderDoc } from "../src/document/schema.js";
 
 function createEmptyMarkdownDoc(): Automerge.Doc<MarkdownDoc> {

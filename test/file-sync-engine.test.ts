@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { next as Automerge } from "@automerge/automerge";
 import { FileSyncEngine } from "../src/core/file-sync-engine.js";
 import { MemoryFileSystemAdapter } from "../src/fs/memory-fs-adapter.js";
-import { createLegacyDocument, createModernDocument } from "../src/document/document-utils.js";
+import { createLegacyDocument, createModernDocument } from "../src/document/document-directories.js";
+import { createCustomOperation, createCustomOperationType } from "../src/document/operation-types.js";
 
 describe("FileSyncEngine unified document facade", () => {
   let fs: MemoryFileSystemAdapter;
@@ -68,5 +70,139 @@ describe("FileSyncEngine unified document facade", () => {
     await engine.forceSave();
 
     expect(await fs.readTextFile("/docs/modern.mdx/index.md")).toBe("# Modern\n\nUpdated");
+  });
+
+  it("applies registered custom operations to modern documents", async () => {
+    await createModernDocument("/docs/custom-op.mdx", fs, "# Custom\n\nHello");
+
+    const engine = new FileSyncEngine("/docs/custom-op.mdx", fs, "DEVICE-A");
+    await engine.load();
+    const canonicalType = createCustomOperationType("example.com", "setAiSummary");
+
+    engine.registerCustomOperationHandler("example.com", "setAiSummary", (doc, operation) =>
+      Automerge.change(doc, (draft) => {
+        draft.aiMetadata ??= {};
+        draft.aiMetadata.summary = String(operation.summary);
+      }),
+    );
+
+    const result = engine.applyCustomOperation(
+      createCustomOperation("example.com", "setAiSummary", {
+        summary: "Summary from custom handler",
+      }),
+    );
+
+    expect(result.changed).toBe(true);
+    expect(engine.getDocument()?.aiMetadata?.summary).toBe("Summary from custom handler");
+
+    await engine.forceSave();
+
+    const reloaded = new FileSyncEngine("/docs/custom-op.mdx", fs, "DEVICE-A");
+    await reloaded.load();
+    expect(reloaded.getDocument()?.aiMetadata?.summary).toBe("Summary from custom handler");
+  });
+
+  it("stores lightweight registry metadata and validates custom operations", async () => {
+    await createModernDocument("/docs/custom-registry.mdx", fs, "# Custom\n\nHello");
+
+    const engine = new FileSyncEngine("/docs/custom-registry.mdx", fs, "DEVICE-A");
+    await engine.load();
+    const canonicalType = createCustomOperationType("example.com", "setValidatedSummary");
+
+    engine.registerCustomOperation({
+      organization: "example.com",
+      typeSegment: "setValidatedSummary",
+      description: "Set AI summary after validating payload",
+      validate: (operation) => {
+        if (typeof operation.summary !== "string" || operation.summary.trim().length === 0) {
+          throw new Error("summary must be a non-empty string");
+        }
+      },
+      apply: (doc, operation) =>
+        Automerge.change(doc, (draft) => {
+          draft.aiMetadata ??= {};
+          draft.aiMetadata.summary = String(operation.summary);
+        }),
+    });
+
+    expect(engine.getCustomOperationDefinition(canonicalType)?.description).toBe(
+      "Set AI summary after validating payload",
+    );
+    expect(engine.listCustomOperationDefinitions().map((entry) => entry.canonicalType)).toContain(canonicalType);
+
+    expect(() =>
+      engine.applyCustomOperation(createCustomOperation("example.com", "setValidatedSummary", {
+        summary: "",
+      })),
+    ).toThrow("summary must be a non-empty string");
+
+    const result = engine.applyCustomOperation(
+      createCustomOperation("example.com", "setValidatedSummary", {
+        summary: "Validated summary",
+      }),
+    );
+
+    expect(result.changed).toBe(true);
+    expect(engine.getDocument()?.aiMetadata?.summary).toBe("Validated summary");
+
+    engine.appendCustomOperationHistoryEntry(
+      {
+        deviceId: "DEVICE-A",
+        nickname: "amber-1a2b",
+        deviceName: "Aster-Mac",
+        customFields: {},
+      },
+      {
+        organization: "example.com",
+        typeSegment: "setValidatedSummary",
+        canonicalType,
+      },
+      "Set AI summary after validating payload",
+    );
+
+    expect(engine.getEditHistory().some((entry) => entry.customOperationSource?.canonicalType === canonicalType)).toBe(true);
+  });
+
+  it("throws when applying an unregistered custom operation", async () => {
+    await createModernDocument("/docs/custom-op-error.mdx", fs, "# Custom\n\nHello");
+
+    const engine = new FileSyncEngine("/docs/custom-op-error.mdx", fs, "DEVICE-A");
+    await engine.load();
+
+    expect(() =>
+      engine.applyCustomOperation({
+        type: createCustomOperationType("example.com", "unknownCustomOperation"),
+        value: 1,
+      }),
+    ).toThrow("No custom operation handler registered for type: example.com/unknownCustomOperation");
+  });
+
+  it("rejects invalid organization domains and duplicate registrations", async () => {
+    await createModernDocument("/docs/custom-op-dup.mdx", fs, "# Custom\n\nHello");
+
+    const engine = new FileSyncEngine("/docs/custom-op-dup.mdx", fs, "DEVICE-A");
+    await engine.load();
+
+    expect(() =>
+      engine.registerCustomOperation({
+        organization: "https://example.com",
+        typeSegment: "setSummary",
+        apply: (doc) => doc,
+      }),
+    ).toThrow("Invalid custom operation organization: https://example.com. Expected a bare domain like example.com");
+
+    engine.registerCustomOperation({
+      organization: "example.com",
+      typeSegment: "setSummary",
+      apply: (doc) => doc,
+    });
+
+    expect(() =>
+      engine.registerCustomOperation({
+        organization: "example.com",
+        typeSegment: "setSummary",
+        apply: (doc) => doc,
+      }),
+    ).toThrow("Custom operation already registered: example.com/setSummary");
   });
 });

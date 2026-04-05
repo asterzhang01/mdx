@@ -12,7 +12,7 @@ import { MemoryFileSystemAdapter } from "../src/fs/memory-fs-adapter.js";
 import {
   isMarkdownXDocument,
   createMarkdownXDocument,
-} from "../src/document/document-utils.js";
+} from "../src/document/document-directories.js";
 
 describe("isMarkdownXDocument", () => {
   let fs: MemoryFileSystemAdapter;
