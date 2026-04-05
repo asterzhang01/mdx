@@ -33,6 +33,7 @@ export function createDocument(initialContent: string = '# Untitled\n\n'): Autom
     d.content = initialContent;
     d.commentThreads = {};
     d.assetsDocUrl = '' as never;
+    d.editHistory = [];
   });
 }
 
@@ -70,5 +71,6 @@ export function initDocument(
     d.content = '# Untitled\n\n';
     d.commentThreads = {};
     d.assetsDocUrl = assetsDocUrl as never;
+    d.editHistory = [];
   });
 }

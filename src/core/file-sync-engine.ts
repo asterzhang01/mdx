@@ -14,12 +14,28 @@
  * All file system access is delegated to MdxDocumentStorage.
  */
 import { next as Automerge } from "@automerge/automerge";
-import type { DocumentType, DocumentTypeInfo, MarkdownDoc } from "../document/schema.js";
+import type {
+  DocumentMetadata,
+  DocumentType,
+  DocumentTypeInfo,
+  EditHistoryEntry,
+  MarkdownDoc,
+  UserProfile,
+} from "../document/schema.js";
 import { MdxDocumentStorage } from "../storage/mdx-document-storage.js";
 import { MdDocumentStorage } from "../storage/md-document-storage.js";
 import type { FileSystemAdapter } from "../fs/fs-adapter.js";
 import { getGlobalTraceManager, TraceLevel, TraceType } from "../utils/trace.js";
-import { createDocument, getAllChanges, extractChanges, applyContentChange } from "../document/document-operations.js";
+import {
+  appendEditHistory,
+  applyContentChange,
+  createDocument,
+  ensureDocumentCapabilities,
+  extractChanges,
+  getAllChanges,
+  touchDocumentMetadata,
+  updateDocumentMetadata as setDocumentMetadata,
+} from "../document/document-operations.js";
 import { detectDocumentType, convertLegacyToModern } from "../document/document-utils.js";
 import { findReferencedAssets, findOrphanedAssets } from "../utils/asset-utils.js";
 
@@ -237,6 +253,10 @@ export class FileSyncEngine {
     return this.document;
   }
 
+  setDocument(doc: Automerge.Doc<MarkdownDoc>): void {
+    this.document = doc;
+  }
+
   getDocumentType(): DocumentType | null {
     return this.documentType;
   }
@@ -259,6 +279,74 @@ export class FileSyncEngine {
     }
 
     return `${this.basePath}/assets`;
+  }
+
+  getDocumentMetadata(): DocumentMetadata | null {
+    return this.document?.metadata ?? null;
+  }
+
+  getEditHistory(): EditHistoryEntry[] {
+    return [...(this.document?.editHistory ?? [])];
+  }
+
+  ensureCapabilities(user: UserProfile, options: { includeCreationHistory?: boolean; now?: string } = {}): boolean {
+    if (!this.document || this.documentType === "legacy") {
+      return false;
+    }
+
+    const result = ensureDocumentCapabilities(this.document, user, options);
+    if (result.changed) {
+      this.document = result.doc;
+      const changes = extractChanges(result.doc);
+      const storage = this.getOrCreateModernStorage();
+      for (const change of changes) {
+        storage.appendChange(change);
+      }
+    }
+
+    return result.changed;
+  }
+
+  updateMetadata(metadata: DocumentMetadata): boolean {
+    if (!this.document || this.documentType === "legacy") {
+      return false;
+    }
+
+    this.document = setDocumentMetadata(this.document, metadata);
+    const changes = extractChanges(this.document);
+    const storage = this.getOrCreateModernStorage();
+    for (const change of changes) {
+      storage.appendChange(change);
+    }
+    return true;
+  }
+
+  appendHistoryEntry(user: UserProfile, kind: "document-created" | "content-saved" | "metadata-updated" | "external-change", summary: string): boolean {
+    if (!this.document || this.documentType === "legacy") {
+      return false;
+    }
+
+    this.document = appendEditHistory(this.document, user, kind, summary);
+    const changes = extractChanges(this.document);
+    const storage = this.getOrCreateModernStorage();
+    for (const change of changes) {
+      storage.appendChange(change);
+    }
+    return true;
+  }
+
+  touchMetadataForSave(user: UserProfile): boolean {
+    if (!this.document?.metadata || this.documentType === "legacy") {
+      return false;
+    }
+
+    this.document = setDocumentMetadata(this.document, touchDocumentMetadata(this.document.metadata, user));
+    const changes = extractChanges(this.document);
+    const storage = this.getOrCreateModernStorage();
+    for (const change of changes) {
+      storage.appendChange(change);
+    }
+    return true;
   }
 
   async convertToModern(): Promise<void> {

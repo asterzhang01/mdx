@@ -35,6 +35,46 @@ export type AIMetadata = {
   vectorIndexPath?: string;
 };
 
+export type MetadataPrimitive = string | number | boolean | null;
+export interface MetadataMap {
+  [key: string]: MetadataValue;
+}
+export interface MetadataList extends Array<MetadataValue> {}
+export type MetadataValue = MetadataPrimitive | MetadataMap | MetadataList;
+
+export type UserProfile = {
+  deviceId: string;
+  nickname: string;
+  deviceName: string;
+  customFields: MetadataMap;
+};
+
+export type DocumentMetadata = {
+  createdAt: string;
+  createdByDeviceId: string;
+  createdByNickname: string;
+  updatedAt: string;
+  updatedByDeviceId: string;
+  updatedByNickname: string;
+  customFields: MetadataMap;
+};
+
+export type EditHistoryKind =
+  | "document-created"
+  | "content-saved"
+  | "metadata-updated"
+  | "external-change";
+
+export type EditHistoryEntry = {
+  id: string;
+  timestamp: string;
+  actorDeviceId: string;
+  actorNickname: string;
+  actorDeviceName: string;
+  kind: EditHistoryKind;
+  summary: string;
+};
+
 /** The primary Markdown document — character-level CRDT */
 export type MarkdownDoc = {
   /** Markdown body, character-level CRDT via Automerge.splice */
@@ -45,6 +85,10 @@ export type MarkdownDoc = {
   assetsDocUrl: AutomergeUrl;
   /** AI metadata (Phase 1: structure only, no logic) */
   aiMetadata?: AIMetadata;
+  /** Structured document metadata stored with the document */
+  metadata?: DocumentMetadata;
+  /** Save-level history entries for UI display */
+  editHistory?: EditHistoryEntry[];
 };
 
 /** A single file entry inside an AssetsDoc */
