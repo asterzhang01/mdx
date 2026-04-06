@@ -86,6 +86,40 @@ describe("MdxDocumentStorage", () => {
       // Should only have one chunk file (old one deleted)
       expect(chunkFiles.length).toBe(1);
     });
+
+    it("cleans up all stale chunks for the same device on the next write", async () => {
+      const doc = createTestDoc();
+      const changes = Automerge.getAllChanges(doc);
+
+      for (const change of changes) {
+        storage.appendChange(change);
+      }
+      await storage.flushChanges();
+
+      const doc2 = Automerge.change(doc, (d) => {
+        d.content = "# Updated A\n";
+      });
+      const adapter2 = new MdxDocumentStorage(basePath, fs, deviceId);
+      const change2 = Automerge.getLastLocalChange(doc2);
+      if (change2) {
+        adapter2.appendChange(change2);
+      }
+      await adapter2.flushChanges();
+
+      const doc3 = Automerge.change(doc2, (d) => {
+        d.content = "# Updated B\n";
+      });
+      const adapter3 = new MdxDocumentStorage(basePath, fs, deviceId);
+      const change3 = Automerge.getLastLocalChange(doc3);
+      if (change3) {
+        adapter3.appendChange(change3);
+      }
+      await adapter3.flushChanges();
+
+      const metaFiles = await fs.readdir(`${basePath}/.mdx`);
+      const chunkFiles = metaFiles.filter((f) => f.endsWith(".chunk"));
+      expect(chunkFiles.length).toBe(1);
+    });
   });
 
   // -----------------------------------------------------------------------

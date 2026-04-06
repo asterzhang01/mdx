@@ -117,8 +117,39 @@ export type DocumentTypeInfo = {
   hasSyncCapability: boolean;
 };
 
+export type RemoteTransportType = "webdav";
+
+export type RemoteTransportConfig = {
+  transport: RemoteTransportType;
+  remoteRoot: string;
+  credentialRef: string | null;
+};
+
+export type WebDavConfig = {
+  baseUrl: string;
+  remoteRoot: string;
+  username: string;
+};
+
+export type VaultRemoteSyncState = "idle" | "syncing" | "error";
+
+export type VaultRemoteSyncStatus = {
+  state: VaultRemoteSyncState;
+  lastSyncAt?: string;
+  lastError?: string;
+};
+
+export type VaultRemoteSyncSettings = {
+  enabled: boolean;
+  transport: RemoteTransportType | null;
+  config?: RemoteTransportConfig;
+  webdav?: WebDavConfig;
+  status?: VaultRemoteSyncStatus;
+};
+
 export type VaultSettings = {
   showLineNumbers: boolean;
+  remoteSync?: VaultRemoteSyncSettings;
 };
 
 export type VaultConfigDoc = {

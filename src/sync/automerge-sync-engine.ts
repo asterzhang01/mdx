@@ -170,9 +170,14 @@ export class AutomergeSyncEngine<TDoc extends object> {
     await this.fs.writeFile(tmpPath, serialiseChunk(meta));
     await this.fs.rename(tmpPath, finalPath);
 
-    if (existingChunk) {
+    const staleChunks = files.filter((file) => {
+      const parsed = parseChunkFileName(file);
+      return parsed && parsed.deviceId === this.deviceId && file !== newChunkName;
+    });
+
+    for (const staleChunk of staleChunks) {
       try {
-        await this.fs.unlink(`${this.metaDir}/${existingChunk.fileName}`);
+        await this.fs.unlink(`${this.metaDir}/${staleChunk}`);
       } catch {
         // Lazy cleanup
       }
