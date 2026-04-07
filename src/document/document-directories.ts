@@ -182,14 +182,18 @@ export async function createLegacyDocument(
 export async function createModernDocument(
   path: string,
   fsAdapter: FileSystemAdapter,
-  initialContent = "# Untitled\n\n"
+  initialContent = "# Untitled\n\n",
+  options: { exportIndexMarkdown?: boolean } = {}
 ): Promise<string> {
   const trace = getGlobalTraceManager();
+  const exportIndexMarkdown = options.exportIndexMarkdown ?? true;
 
   await fsAdapter.mkdir(path);
   await fsAdapter.mkdir(`${path}/.mdx`);
   await fsAdapter.mkdir(`${path}/assets`);
-  await fsAdapter.writeTextFile(`${path}/index.md`, initialContent);
+  if (exportIndexMarkdown) {
+    await fsAdapter.writeTextFile(`${path}/index.md`, initialContent);
+  }
 
   // Write a marker file so the .mdx directory is detectable even on
   // flat-namespace file systems (e.g. MemoryFileSystemAdapter).
@@ -201,7 +205,8 @@ export async function createModernDocument(
   trace.log(TraceLevel.DEBUG, TraceType.FILE, "createModernDocument", "created", {
     path,
     hasMdxDir: true,
-    hasInitialized: true
+    hasInitialized: true,
+    exportIndexMarkdown,
   });
 
   return path;
